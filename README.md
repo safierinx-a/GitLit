@@ -68,4 +68,37 @@ backend/
 frontend/             # Web interface (planned)
 ```
 
+## Deployment
+
+### Syncing with Raspberry Pi
+
+The project includes a sync script to easily deploy code to your Raspberry Pi:
+
+1. Copy `.env.example` to `.env` and update with your configuration:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` with your Raspberry Pi details:
+
+   ```bash
+   PI_USER="your-pi-username"
+   PI_HOST="your-pi-hostname.local"
+   LOCAL_DIR="/path/to/your/local/directory"
+   REMOTE_DIR="/path/to/your/pi/directory"
+   ```
+
+3. Use the sync script to deploy:
+
+   ```bash
+   # Push local changes to Pi
+   ./sync-pi.sh to_pi
+
+   # Pull changes from Pi to local
+   ./sync-pi.sh from_pi
+   ```
+
+The sync script automatically excludes temporary files, Python cache, logs, and development artifacts.
+
 See [docs](./backend/docs/) for detailed specifications.

@@ -1,10 +1,23 @@
 #!/bin/bash
 
+# Load environment variables
+if [ -f .env ]; then
+    export $(cat .env | xargs)
+else
+    echo "Error: .env file not found"
+    echo "Please copy .env.example to .env and update the values"
+    exit 1
+fi
+
+# Validate required environment variables
+for var in PI_USER PI_HOST LOCAL_DIR REMOTE_DIR; do
+    if [ -z "${!var}" ]; then
+        echo "Error: $var is not set in .env file"
+        exit 1
+    fi
+done
+
 # Configuration
-PI_USER="vo603-rpi-1"  # Replace with your Pi username
-PI_HOST="vo603-rpi-1.local"  # Replace with your Pi's hostname or IP
-LOCAL_DIR="/Users/safierinx/playground/smarthome/GitLit/backend"  # Replace with your local directory
-REMOTE_DIR="/home/vo603-rpi-1/v2"  # Replace with your Pi directory
 LOG_FILE="$HOME/rsync_backup.log"
 
 # Ensure log directory exists

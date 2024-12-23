@@ -1,53 +1,56 @@
 # GitLit
 
-I'm building a system for generating and displaying LED patterns on addressable LED strips. The goal is to create a modular and scalable architecture that makes it easy to add new patterns and effects.
+A modular LED pattern system for addressable LED strips, with audio reactivity and extensible effects.
 
-## What's Working So Far ✨
+## Current Status ✨
 
-I've got the core pattern system working with:
+### Working Features
 
-- basic static/moving/particle patterns
-- modifier system for tweaking patterns (brightness, speed, etc.)
-- basic audio processing with beat detection
+- Core pattern system with:
+  - Static patterns (Solid, Gradient)
+  - Moving patterns (Wave, Rainbow, Chase, Scan)
+  - Particle patterns (Twinkle, Meteor, Breathe)
+- Basic modifier system:
+  - Effect modifiers (Brightness, Speed, Direction, Color, etc.)
+  - Basic state management
+- Audio processing:
+  - Device management and audio capture
+  - Basic beat detection
+  - Basic feature extraction
 
-## WIP 🛠️
+### In Progress 🛠️
 
-Currently focusing on:
+- Audio reactivity:
+  - Volume-based modifiers
+  - Beat-based modifiers
+  - Spectrum analysis
+- Pattern system improvements:
+  - Pattern transitions (framework exists)
+  - Performance optimizations
+  - State management refinements
 
-- Making patterns react to music in real-time
-- Smooth transitions between patterns
-- Performance optimizations
-- Better audio analysis
-
-⚠️ TODO: Need to create proper setup scripts for getting everything installed and configured easily.
-
-## The Plan 📋
-
-End goal is to have a nice home lighting system with:
+### Planned 📋
 
 - Web interface for control
-- Reactive audio visualizations
-- Standalone visual patterns
-- Support for both 1D and 2D LED layouts
-- Multi-device sync would be cool
+- Advanced audio analysis
+- Pattern sequences and composition
+- 2D LED layout support
+- Multi-device synchronization
 
 ## Hardware Setup
 
-I'm using:
+- Raspberry Pi 3B+
+- USB audio card (for sound input)
+- WS2812B LED strips
 
-- A Raspberry Pi 3B+
-- A USB audio card for sound input from a splitter connected to a bluetooth DAC
-- WS2812B addressable LED strips
+## Software Requirements
 
-## Software Dependencies
-
-Needs Python 3.11+ and some libraries:
-
-- NumPy
-- PyAudio
-- librosa
-- torchaudio
-- JACK Audio (optional but recommended)
+- Python 3.11+
+- Core dependencies:
+  - NumPy
+  - PyAudio
+  - librosa (for audio processing)
+  - torchaudio (for feature extraction)
 
 ## Project Structure
 
@@ -58,11 +61,11 @@ backend/
   │   ├── patterns/    # Pattern implementations
   │   ├── audio/       # Audio processing
   │   ├── led/         # LED control
-  │   └── control/     # Web interface backend
-  └── tests/           # Test suite
+  │   └── core/        # Core utilities
+  ├── tests/           # Test suite
   └── docs/            # Documentation
 
-frontend/             # Web control interface (planned)
+frontend/             # Web interface (planned)
 ```
 
-Check out the [docs](./backend/docs/) folder for more details.
+See [docs](./backend/docs/) for detailed specifications.

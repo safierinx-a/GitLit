@@ -1,0 +1,105 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Project Specific
+# Audio processing temporary files
+*.wav
+*.mp3
+*.raw
+*.pcm
+
+# LED test outputs
+*.led
+*.strip
+
+# Logs and data
+logs/
+*.log
+*.csv
+*.json
+
+# YAML files except configs
+*.yaml
+*.yml
+!backend/config/*.yaml
+!backend/config/*.yml
+
+# Cache directories
+.cache/
+backend/src/audio/analysis/models/cache/
+backend/src/patterns/cache/
+
+# Model weights and checkpoints
+*.pt
+*.pth
+*.ckpt
+*.h5
+backend/src/audio/analysis/models/weights/
+backend/src/audio/analysis/models/pretrained/
+
+# Test coverage
+.coverage
+coverage.xml
+htmlcov/
+
+# Performance profiling
+*.prof
+*.stats
+profile_results/
+
+# System specific
+*.pid
+*.sock
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Documentation build
+docs/_build/
+docs/api/
+
+# Temporary files
+*.tmp
+*.temp
+.pytest_cache/ 

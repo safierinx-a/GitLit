@@ -1,0 +1,30 @@
+# LED Strip Configuration
+led_strip:
+  # Hardware settings
+  count: 300          # Number of LEDs in strip
+  pin: 18            # GPIO pin number (BCM)
+  freq_hz: 800000    # LED signal frequency
+  dma: 10            # DMA channel
+  brightness: 255    # Default brightness (0-255)
+  invert: false      # Signal inversion
+  channel: 0         # PWM channel
+  strip_type: "WS2812"  # LED strip type
+
+  # Startup settings
+  startup_brightness: 128  # Initial brightness
+  startup_pattern: "solid" # Pattern to show at startup
+  startup_color: [255, 255, 255]  # White
+
+# Audio Configuration
+audio:
+  sample_rate: 44100
+  channels: 1
+  buffer_size: 2048
+  device: "default"  # or specific device name
+
+# Performance Settings
+performance:
+  target_fps: 60
+  gpu_acceleration: false
+  frame_buffer_size: 2
+  debug_mode: false 

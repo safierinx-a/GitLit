@@ -93,11 +93,11 @@ chmod +x waf
 
 # Configure and build using waf
 echo "Configuring Essentia build..."
-PYTHON=$(which python3) ./waf configure --build-static --with-python --with-examples=no
+./waf configure --build-static --with-python --python=$(which python3)
 echo "Building Essentia..."
-PYTHON=$(which python3) ./waf
+./waf
 echo "Installing Essentia..."
-PYTHON=$(which python3) ./waf install
+./waf install
 ldconfig
 
 print_header "Setting up Python Environment"

@@ -1,4 +1,11 @@
 from setuptools import setup, find_packages
+import os
+
+# Read README.md if it exists
+long_description = ""
+if os.path.exists("README.md"):
+    with open("README.md", "r", encoding="utf-8") as f:
+        long_description = f.read()
 
 setup(
     name="gitlit-server",
@@ -25,7 +32,7 @@ setup(
     python_requires=">=3.11",
     author="GitLit Team",
     description="Audio reactive LED pattern server",
-    long_description=open("README.md").read(),
+    long_description=long_description,
     long_description_content_type="text/markdown",
     classifiers=[
         "Development Status :: 3 - Alpha",

@@ -48,7 +48,11 @@ apt-get install -y \
 
 print_header "Building Essentia from Source"
 
-# Clone Essentia repository
+# Create a build directory for external dependencies
+mkdir -p external
+cd external
+
+# Clone and build Essentia
 if [ ! -d "essentia" ]; then
     git clone https://github.com/MTG/essentia.git
     cd essentia
@@ -67,7 +71,14 @@ if [ ! -d "essentia" ]; then
     make -j2
     make install
     ldconfig
-    cd ../..
+    cd ../../..
+else
+    echo "Essentia directory already exists, skipping clone"
+    cd essentia
+    cd build
+    make install
+    ldconfig
+    cd ../../..
 fi
 
 print_header "Setting up Python Environment"

@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Exit on error
-set -e
+# Exit on error and print commands as they are executed
+set -ex
 
 # Colors for output
 RED='\033[0;31m'
@@ -13,8 +13,13 @@ print_header() {
     echo -e "\n${BLUE}=== $1 ===${NC}\n"
 }
 
-# Store the root directory
-ROOT_DIR=$(pwd)
+# Store the absolute path of the script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Get the project root directory (parent of script directory)
+ROOT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+
+echo "Script directory: $SCRIPT_DIR"
+echo "Root directory: $ROOT_DIR"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then 
@@ -53,24 +58,39 @@ print_header "Building Essentia from Source"
 
 # Create and enter external directory
 cd "$ROOT_DIR"
+echo "Current directory before creating external: $(pwd)"
 mkdir -p external
 cd external
+echo "Current directory after entering external: $(pwd)"
 
 # Remove existing essentia directory if it exists
 if [ -d "essentia" ]; then
+    echo "Removing existing essentia directory"
     rm -rf essentia
 fi
 
 # Clone Essentia
+echo "Cloning Essentia repository"
 git clone https://github.com/MTG/essentia.git
 cd essentia
+echo "Current directory after entering essentia: $(pwd)"
 
-# Checkout master branch
-git checkout master
+# List contents to verify clone
+echo "Contents of essentia directory:"
+ls -la
+
+# Verify CMakeLists.txt exists
+if [ ! -f "CMakeLists.txt" ]; then
+    echo -e "${RED}Error: CMakeLists.txt not found in $(pwd)${NC}"
+    echo "Contents of current directory:"
+    ls -la
+    exit 1
+fi
 
 # Create and enter build directory
 mkdir -p build
 cd build
+echo "Current directory in build: $(pwd)"
 
 # Run CMake
 cmake -DCMAKE_BUILD_TYPE=Release \
@@ -89,6 +109,7 @@ print_header "Setting up Python Environment"
 # Return to root and enter server directory
 cd "$ROOT_DIR"
 cd server
+echo "Current directory for Python setup: $(pwd)"
 
 # Create and activate virtual environment
 python3 -m venv .venv

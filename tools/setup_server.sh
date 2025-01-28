@@ -37,25 +37,42 @@ apt-get install -y \
     python3-pip \
     python3-venv \
     python3-dev \
-    portaudio19-dev \
-    libatlas-base-dev \
+    python3-numpy \
+    python3-numpy-dev \
+    python3-yaml \
+    python3-six \
+    libpython3-dev \
+    pkg-config \
     gcc \
+    g++ \
     make \
     git \
     swig \
     build-essential \
+    libeigen3-dev \
+    libyaml-dev \
     libfftw3-dev \
     libavcodec-dev \
     libavformat-dev \
     libavutil-dev \
+    libavresample-dev \
     libswresample-dev \
     libsamplerate0-dev \
     libtag1-dev \
-    libyaml-dev \
-    python3-numpy-dev \
-    python3-yaml \
-    libpython3-dev \
-    pkg-config
+    libchromaprint-dev \
+    portaudio19-dev \
+    libsndfile1-dev \
+    libgaia-dev \
+    libcurl4-openssl-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    libgtest-dev \
+    libatlas-base-dev \
+    libilmbase-dev \
+    libopenexr-dev \
+    libprotobuf-dev \
+    protobuf-compiler \
+    libssl-dev
 
 # Create python symlink if it doesn't exist
 if ! command -v python &> /dev/null; then

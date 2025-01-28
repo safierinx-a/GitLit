@@ -32,16 +32,47 @@ print_header "Installing System Dependencies"
 # Update package lists
 apt-get update
 
-# Install Essentia and its dependencies
+# Install build dependencies
 apt-get install -y \
-    python3-essentia \
-    python3-pip \
-    python3-venv \
+    build-essential \
+    libeigen3-dev \
+    libyaml-dev \
+    libfftw3-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswresample-dev \
+    libsamplerate0-dev \
+    libtag1-dev \
+    libchromaprint-dev \
+    python3-dev \
     python3-numpy \
     python3-yaml \
     python3-six \
-    portaudio19-dev \
-    libsndfile1-dev
+    python3-pip \
+    python3-venv \
+    pkg-config
+
+print_header "Building Essentia from Source"
+
+# Create and enter external directory
+cd "$ROOT_DIR"
+mkdir -p external
+cd external
+
+# Clone Essentia with submodules
+echo "Cloning Essentia repository"
+git clone --recursive https://github.com/MTG/essentia.git
+cd essentia
+
+# Configure and build using waf
+echo "Configuring Essentia build..."
+python3 waf configure --build-static --with-python
+echo "Building Essentia..."
+python3 waf
+echo "Installing Essentia..."
+python3 waf install
+ldconfig
 
 print_header "Setting up Python Environment"
 

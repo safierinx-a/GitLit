@@ -57,6 +57,12 @@ apt-get install -y \
     libpython3-dev \
     pkg-config
 
+# Create python symlink if it doesn't exist
+if ! command -v python &> /dev/null; then
+    echo "Creating python symlink..."
+    ln -s $(which python3) /usr/local/bin/python
+fi
+
 print_header "Building Essentia from Source"
 
 # Create and enter external directory
@@ -82,13 +88,16 @@ echo "Current directory after entering essentia: $(pwd)"
 echo "Contents of essentia directory:"
 ls -la
 
+# Make waf executable
+chmod +x waf
+
 # Configure and build using waf
 echo "Configuring Essentia build..."
-./waf configure --build-static --with-python --with-examples=no
+PYTHON=$(which python3) ./waf configure --build-static --with-python --with-examples=no
 echo "Building Essentia..."
-./waf
+PYTHON=$(which python3) ./waf
 echo "Installing Essentia..."
-./waf install
+PYTHON=$(which python3) ./waf install
 ldconfig
 
 print_header "Setting up Python Environment"

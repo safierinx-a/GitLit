@@ -1,0 +1,36 @@
+Name,Manager,Title
+Viraf Sir,,
+Navnik Sir,Viraf Sir,Director 
+Ms. Debata,Viraf Sir,Director
+Vivek Saxena,Viraf Sir,Branch Head
+Proposed1,Vivek Saxena,Garment Sales BDM
+Sanjeev,Vivek Saxena,Accounts
+Bhat Chandra,Vivek Saxena,Industrial Sales and Service
+Dashnath,Proposed1,Sales Manager
+Avinash,Proposed1,Territory Manager
+Piyush,Dashnath,Dealer Sales
+Paresh,Avinash,Sr Sales Manager
+Ankit Kumar,Paresh,Sales Executive
+Proposed2,Sanjeev,Asst. Accountant
+Ms. Supriti,Proposed3,Service Coordinator
+Proposed3,Vivek Saxena,Service Manager
+Bijeev,Ms. Supriti,Sr Technician
+Sudheer,Ms. Supriti,Technician
+Rajesh,Ms. Supriti,Sr Technician
+Shivnath,Ms. Supriti,Technician
+Stendon,Ms. Supriti,Technician
+Govind Singh,Bhat Chandra,Sr Technician
+Mohit,Bhat Chandra,Sr Technician
+Naveen,Bhat Chandra,Technician
+Proposed4,Bhat Chandra,Technician
+Proposed5,Bhat Chandra,Technician
+Ms. Anuradha,Vivek Saxena,Admin & Machine Stores
+Proposed6,Ms. Anuradha,Asst. Admin Executive
+Umesh Sinha,Ms. Anuradha,Stores
+Manoj,Proposed6,Office Boy
+Shailender Shukla,Umesh Sinha,Machine Store
+Lalit,Vivek Saxena,Stores
+Parmesh Pratap,Lalit,PCB Repair
+Appu Singh,Lalit,Installation Technician
+Suraj,Lalit,Installation Technician
+Proposed7,Lalit,Technician

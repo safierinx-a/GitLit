@@ -1,104 +1,159 @@
 # GitLit
 
-A modular LED pattern system for addressable LED strips, with audio reactivity and extensible effects.
+A distributed LED lighting system with audio reactivity and pattern generation.
 
-## Current Status ✨
+## Architecture
 
-### Working Features
+The project is split into three main components:
 
-- Core pattern system with:
-  - Static patterns (Solid, Gradient)
-  - Moving patterns (Wave, Rainbow, Chase, Scan)
-  - Particle patterns (Twinkle, Meteor, Breathe)
-- Basic modifier system:
-  - Effect modifiers (Brightness, Speed, Direction, Color, etc.)
-  - Basic state management
-- Audio processing:
-  - Device management and audio capture
-  - Basic beat detection
-  - Basic feature extraction
+1. **Server**: Audio processing and pattern generation
 
-### In Progress 🛠️
+   - FastAPI backend for pattern control
+   - Real-time audio processing with Essentia
+   - Pattern generation engine
+   - WebSocket for real-time updates
 
-- Audio reactivity:
-  - Volume-based modifiers
-  - Beat-based modifiers
-  - Spectrum analysis
-- Pattern system improvements:
-  - Pattern transitions (framework exists)
-  - Performance optimizations
-  - State management refinements
+2. **Controller**: Raspberry Pi LED control
 
-### Planned 📋
+   - LED hardware interface
+   - Audio capture and streaming
+   - Real-time pattern rendering
+   - Network communication with server
 
-- Web interface for control
-- Advanced audio analysis
-- Pattern sequences and composition
-- 2D LED layout support
-- Multi-device synchronization
-
-## Hardware Setup
-
-- Raspberry Pi 3B+
-- USB audio card (for sound input)
-- WS2812B LED strips
-
-## Software Requirements
-
-- Python 3.11+
-- Core dependencies:
-  - NumPy
-  - PyAudio
-  - librosa (for audio processing)
-  - torchaudio (for feature extraction)
+3. **Frontend**: Web interface
+   - Pattern control UI
+   - Audio visualization
+   - System monitoring
+   - Configuration management
 
 ## Project Structure
 
 ```
-backend/
-  ├── config/          # Configuration files
-  ├── src/
-  │   ├── patterns/    # Pattern implementations
-  │   ├── audio/       # Audio processing
-  │   ├── led/         # LED control
-  │   └── core/        # Core utilities
-  ├── tests/           # Test suite
-  └── docs/            # Documentation
+GitLit/
+├── server/              # Audio processing & pattern generation server
+│   ├── src/
+│   │   ├── api/        # FastAPI endpoints
+│   │   ├── audio/      # Audio processing
+│   │   ├── patterns/   # Pattern generation
+│   │   └── core/       # Core utilities
+│   ├── tests/
+│   └── requirements.txt
+│
+├── controller/          # Raspberry Pi LED controller
+│   ├── src/
+│   │   ├── led/        # LED hardware control
+│   │   ├── client/     # Audio streaming client
+│   │   └── config/     # Configuration
+│   ├── tests/
+│   └── requirements.txt
+│
+├── frontend/           # Web interface
+│   ├── src/
+│   ├── public/
+│   └── package.json
+│
+├── docs/              # Project documentation
+│   ├── architecture/
+│   ├── api/
+│   └── setup/
+│
+└── tools/             # Shared development tools
+    ├── sync-pi.sh
+    └── setup.sh
+```
 
-frontend/             # Web interface (planned)
+## Requirements
+
+### Server
+
+- Python 3.11+
+- FastAPI
+- Essentia
+- Librosa
+- NumPy
+
+### Controller (Raspberry Pi)
+
+- Python 3.11+
+- rpi_ws281x
+- NumPy
+- sounddevice
+- websockets
+
+### Frontend
+
+- Node.js 18+
+- React
+- TypeScript
+
+## Setup
+
+1. Server Setup:
+
+```bash
+cd server
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+2. Controller Setup (on Raspberry Pi):
+
+```bash
+cd controller
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+3. Frontend Setup:
+
+```bash
+cd frontend
+npm install
+```
+
+## Development
+
+### Running the Server
+
+```bash
+cd server
+uvicorn src.api.app:app --reload --port 8000
+```
+
+### Running the Controller
+
+```bash
+cd controller
+python src/client/audio_client.py --host SERVER_IP
+```
+
+### Running the Frontend
+
+```bash
+cd frontend
+npm run dev
 ```
 
 ## Deployment
 
 ### Syncing with Raspberry Pi
 
-The project includes a sync script to easily deploy code to your Raspberry Pi:
+Use the sync script to deploy controller code:
 
-1. Copy `.env.example` to `.env` and update with your configuration:
+```bash
+./tools/sync-pi.sh to_pi
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+See [docs/setup/raspberry-pi.md](docs/setup/raspberry-pi.md) for detailed setup instructions.
 
-2. Edit `.env` with your Raspberry Pi details:
+## Documentation
 
-   ```bash
-   PI_USER="your-pi-username"
-   PI_HOST="your-pi-hostname.local"
-   LOCAL_DIR="/path/to/your/local/directory"
-   REMOTE_DIR="/path/to/your/pi/directory"
-   ```
+- [Architecture Overview](docs/architecture/overview.md)
+- [API Documentation](docs/api/README.md)
+- [Setup Guide](docs/setup/README.md)
 
-3. Use the sync script to deploy:
+## License
 
-   ```bash
-   # Push local changes to Pi
-   ./sync-pi.sh to_pi
-
-   # Pull changes from Pi to local
-   ./sync-pi.sh from_pi
-   ```
-
-The sync script automatically excludes temporary files, Python cache, logs, and development artifacts.
-
-See [docs](./backend/docs/) for detailed specifications.
+MIT License - See LICENSE file for details

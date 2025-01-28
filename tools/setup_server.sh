@@ -43,7 +43,6 @@ apt-get install -y \
     make \
     git \
     swig \
-    cmake \
     build-essential \
     libfftw3-dev \
     libavcodec-dev \
@@ -52,7 +51,11 @@ apt-get install -y \
     libswresample-dev \
     libsamplerate0-dev \
     libtag1-dev \
-    libyaml-dev
+    libyaml-dev \
+    python3-numpy-dev \
+    python3-yaml \
+    libpython3-dev \
+    pkg-config
 
 print_header "Building Essentia from Source"
 
@@ -79,29 +82,13 @@ echo "Current directory after entering essentia: $(pwd)"
 echo "Contents of essentia directory:"
 ls -la
 
-# Verify CMakeLists.txt exists
-if [ ! -f "CMakeLists.txt" ]; then
-    echo -e "${RED}Error: CMakeLists.txt not found in $(pwd)${NC}"
-    echo "Contents of current directory:"
-    ls -la
-    exit 1
-fi
-
-# Create and enter build directory
-mkdir -p build
-cd build
-echo "Current directory in build: $(pwd)"
-
-# Run CMake
-cmake -DCMAKE_BUILD_TYPE=Release \
-      -DESSENTIA_PYTHON_EXTENSIONS=ON \
-      -DBUILD_EXAMPLES=OFF \
-      -DBUILD_TESTING=OFF \
-      ..
-
-# Compile with reduced parallel jobs for stability
-make -j2
-make install
+# Configure and build using waf
+echo "Configuring Essentia build..."
+./waf configure --build-static --with-python --with-examples=no
+echo "Building Essentia..."
+./waf
+echo "Installing Essentia..."
+./waf install
 ldconfig
 
 print_header "Setting up Python Environment"

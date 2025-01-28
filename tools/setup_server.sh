@@ -13,6 +13,9 @@ print_header() {
     echo -e "\n${BLUE}=== $1 ===${NC}\n"
 }
 
+# Store the root directory
+ROOT_DIR=$(pwd)
+
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then 
     echo -e "${RED}Please run as root (use sudo)${NC}"
@@ -48,43 +51,44 @@ apt-get install -y \
 
 print_header "Building Essentia from Source"
 
-# Create a build directory for external dependencies
+# Create and enter external directory
+cd "$ROOT_DIR"
 mkdir -p external
 cd external
 
-# Clone and build Essentia
-if [ ! -d "essentia" ]; then
-    git clone https://github.com/MTG/essentia.git
-    cd essentia
-    git checkout master
-    
-    # Configure and build
-    mkdir -p build
-    cd build
-    cmake -DCMAKE_BUILD_TYPE=Release \
-          -DESSENTIA_PYTHON_EXTENSIONS=ON \
-          -DBUILD_EXAMPLES=OFF \
-          -DBUILD_TESTING=OFF \
-          ..
-    
-    # Compile with reduced parallel jobs for stability
-    make -j2
-    make install
-    ldconfig
-    cd ../../..
-else
-    echo "Essentia directory already exists, skipping clone"
-    cd essentia
-    cd build
-    make install
-    ldconfig
-    cd ../../..
+# Remove existing essentia directory if it exists
+if [ -d "essentia" ]; then
+    rm -rf essentia
 fi
+
+# Clone Essentia
+git clone https://github.com/MTG/essentia.git
+cd essentia
+
+# Checkout master branch
+git checkout master
+
+# Create and enter build directory
+mkdir -p build
+cd build
+
+# Run CMake
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DESSENTIA_PYTHON_EXTENSIONS=ON \
+      -DBUILD_EXAMPLES=OFF \
+      -DBUILD_TESTING=OFF \
+      ..
+
+# Compile with reduced parallel jobs for stability
+make -j2
+make install
+ldconfig
 
 print_header "Setting up Python Environment"
 
-# Switch to the server directory
-cd "$(dirname "$0")/../server"
+# Return to root and enter server directory
+cd "$ROOT_DIR"
+cd server
 
 # Create and activate virtual environment
 python3 -m venv .venv

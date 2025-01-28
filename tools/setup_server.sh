@@ -53,26 +53,39 @@ apt-get install -y \
     python3-venv \
     pkg-config
 
-print_header "Building Essentia from Source"
+print_header "Checking Essentia Installation"
 
-# Create and enter external directory
-cd "$ROOT_DIR"
-mkdir -p external
-cd external
+# Try to import essentia in Python to check if it's installed
+if python3 -c "import essentia" 2>/dev/null; then
+    echo -e "${GREEN}Essentia is already installed${NC}"
+else
+    print_header "Building Essentia from Source"
 
-# Clone Essentia with submodules
-echo "Cloning Essentia repository"
-git clone --recursive https://github.com/MTG/essentia.git
-cd essentia
+    # Create and enter external directory
+    cd "$ROOT_DIR"
+    mkdir -p external
+    cd external
 
-# Configure and build using waf
-echo "Configuring Essentia build..."
-python3 waf configure --build-static --with-python
-echo "Building Essentia..."
-python3 waf
-echo "Installing Essentia..."
-python3 waf install
-ldconfig
+    # Remove existing essentia directory if it exists
+    if [ -d "essentia" ]; then
+        echo "Removing existing essentia directory"
+        rm -rf essentia
+    fi
+
+    # Clone Essentia with submodules
+    echo "Cloning Essentia repository"
+    git clone --recursive https://github.com/MTG/essentia.git
+    cd essentia
+
+    # Configure and build using waf
+    echo "Configuring Essentia build..."
+    python3 waf configure --build-static --with-python
+    echo "Building Essentia..."
+    python3 waf
+    echo "Installing Essentia..."
+    python3 waf install
+    ldconfig
+fi
 
 print_header "Setting up Python Environment"
 

@@ -6,7 +6,7 @@ set -ex
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-BLUE='\033[0;34m'
+BLUE='\033[0m'
 NC='\033[0m'
 
 print_header() {
@@ -32,90 +32,16 @@ print_header "Installing System Dependencies"
 # Update package lists
 apt-get update
 
-# Install system dependencies
+# Install Essentia and its dependencies
 apt-get install -y \
+    python3-essentia \
     python3-pip \
     python3-venv \
-    python3-dev \
     python3-numpy \
-    python3-numpy-dev \
     python3-yaml \
     python3-six \
-    libpython3-dev \
-    pkg-config \
-    gcc \
-    g++ \
-    make \
-    git \
-    swig \
-    build-essential \
-    libeigen3-dev \
-    libyaml-dev \
-    libfftw3-dev \
-    libavcodec-dev \
-    libavformat-dev \
-    libavutil-dev \
-    libavresample-dev \
-    libswresample-dev \
-    libsamplerate0-dev \
-    libtag1-dev \
-    libchromaprint-dev \
     portaudio19-dev \
-    libsndfile1-dev \
-    libgaia-dev \
-    libcurl4-openssl-dev \
-    libxml2-dev \
-    libxslt1-dev \
-    libgtest-dev \
-    libatlas-base-dev \
-    libilmbase-dev \
-    libopenexr-dev \
-    libprotobuf-dev \
-    protobuf-compiler \
-    libssl-dev
-
-# Create python symlink if it doesn't exist
-if ! command -v python &> /dev/null; then
-    echo "Creating python symlink..."
-    ln -s $(which python3) /usr/local/bin/python
-fi
-
-print_header "Building Essentia from Source"
-
-# Create and enter external directory
-cd "$ROOT_DIR"
-echo "Current directory before creating external: $(pwd)"
-mkdir -p external
-cd external
-echo "Current directory after entering external: $(pwd)"
-
-# Remove existing essentia directory if it exists
-if [ -d "essentia" ]; then
-    echo "Removing existing essentia directory"
-    rm -rf essentia
-fi
-
-# Clone Essentia
-echo "Cloning Essentia repository"
-git clone https://github.com/MTG/essentia.git
-cd essentia
-echo "Current directory after entering essentia: $(pwd)"
-
-# List contents to verify clone
-echo "Contents of essentia directory:"
-ls -la
-
-# Make waf executable
-chmod +x waf
-
-# Configure and build using waf
-echo "Configuring Essentia build..."
-./waf configure --build-static --with-python --python=$(which python3)
-echo "Building Essentia..."
-./waf
-echo "Installing Essentia..."
-./waf install
-ldconfig
+    libsndfile1-dev
 
 print_header "Setting up Python Environment"
 

@@ -4,6 +4,9 @@ import numpy as np
 from dataclasses import dataclass
 import threading
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -155,11 +158,27 @@ def create_controller(config: Dict[str, Any]) -> LEDController:
     controller_type = config.get("type", "direct")
 
     if controller_type == "direct":
-        return DirectLEDController(
-            num_pixels=config["num_pixels"],
-            pin=config.get("pin", 18),
-            freq=config.get("freq", 800000),
-        )
+        # Check if we're on a Raspberry Pi
+        try:
+            with open("/proc/cpuinfo", "r") as f:
+                is_raspberry_pi = any(
+                    "Raspberry Pi" in line for line in f if line.startswith("Model")
+                )
+        except:
+            is_raspberry_pi = False
+
+        if is_raspberry_pi:
+            return DirectLEDController(
+                num_pixels=config["num_pixels"],
+                pin=config.get("pin", 18),
+                freq=config.get("freq", 800000),
+            )
+        else:
+            from .mock import MockLEDController
+
+            logger.info("Not running on Raspberry Pi, using mock LED controller")
+            return MockLEDController(num_pixels=config["num_pixels"])
+
     elif controller_type == "remote":
         return RemoteLEDController(host=config["host"], port=config.get("port", 8888))
     else:

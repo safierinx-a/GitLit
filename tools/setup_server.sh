@@ -98,8 +98,19 @@ echo "Current directory for Python setup: $(pwd)"
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install Python dependencies
-pip install -e ".[dev]"
+# Upgrade pip to latest version for better dependency resolution
+pip install --upgrade pip
+
+# Install Python dependencies with optimizations
+# --no-deps prevents checking all dependencies recursively
+# --no-build-isolation speeds up the process by reusing the environment
+# -U ensures we get the latest compatible versions
+pip install --no-deps --no-build-isolation -U \
+    wheel \
+    setuptools
+
+# Install the project in editable mode with optimizations
+pip install --no-build-isolation -e ".[dev]"
 
 print_header "Setup Complete"
 echo -e "${GREEN}Server setup completed successfully!${NC}"

@@ -1,5 +1,6 @@
 import time
 import threading
+import atexit
 from typing import Dict, Optional, Callable, Any
 import numpy as np
 
@@ -34,11 +35,13 @@ class AudioProcessor:
         self.processing_thread = None
         self.analysis_thread = None
         self._lock = threading.Lock()
+        self._shutdown_event = threading.Event()
 
         # Performance monitoring
         self.last_process_time = 0.0
         self.average_latency = 0.0
         self.latency_history = []
+        self._max_latency_history = 100
 
         # Event callbacks
         self.callbacks = {
@@ -47,6 +50,9 @@ class AudioProcessor:
             "on_analysis_update": [],
             "on_error": [],
         }
+
+        # Register cleanup on exit
+        atexit.register(self.cleanup)
 
     def register_callback(self, event_type: str, callback: Callable) -> None:
         """Register a callback for specific events"""
@@ -68,6 +74,9 @@ class AudioProcessor:
 
     def _process_audio(self, audio_data: np.ndarray) -> None:
         """Process incoming audio data"""
+        if not self.is_running or self._shutdown_event.is_set():
+            return
+
         start_time = time.time()
 
         try:
@@ -89,7 +98,7 @@ class AudioProcessor:
             # Monitor performance
             process_time = time.time() - start_time
             self.latency_history.append(process_time)
-            if len(self.latency_history) > 100:
+            if len(self.latency_history) > self._max_latency_history:
                 self.latency_history.pop(0)
             self.average_latency = np.mean(self.latency_history)
 
@@ -98,7 +107,7 @@ class AudioProcessor:
 
     def _run_analysis(self) -> None:
         """Run musical analysis in background"""
-        while self.is_running:
+        while self.is_running and not self._shutdown_event.is_set():
             try:
                 # Get latest audio buffer for analysis
                 audio_data = self.audio_buffer.get_latest(
@@ -119,6 +128,9 @@ class AudioProcessor:
 
             except Exception as e:
                 self._handle_error(f"Analysis error: {e}")
+                if not self.is_running or self._shutdown_event.is_set():
+                    break
+                time.sleep(1.0)  # Wait before retrying
 
     def start(self, device_index: Optional[int] = None) -> None:
         """Start audio processing"""
@@ -126,13 +138,20 @@ class AudioProcessor:
             if self.is_running:
                 return
 
+            # Reset shutdown event
+            self._shutdown_event.clear()
+
             # Initialize audio device
-            self.device_manager.start(
-                device_index=device_index,
-                callback=self._process_audio,
-                sample_rate=self.config.sample_rate,
-                buffer_size=self.config.buffer_size,
-            )
+            try:
+                self.device_manager.start(
+                    device_index=device_index,
+                    callback=self._process_audio,
+                    sample_rate=self.config.sample_rate,
+                    buffer_size=self.config.buffer_size,
+                )
+            except Exception as e:
+                self._handle_error(f"Failed to start audio device: {e}")
+                return
 
             # Start pipelines
             self.realtime_pipeline.start()
@@ -151,6 +170,7 @@ class AudioProcessor:
                 return
 
             self.is_running = False
+            self._shutdown_event.set()
 
             # Stop device
             self.device_manager.stop()
@@ -160,12 +180,21 @@ class AudioProcessor:
             self.analysis_pipeline.stop()
 
             # Wait for analysis thread
-            if self.analysis_thread:
-                self.analysis_thread.join(timeout=1.0)
+            if self.analysis_thread and self.analysis_thread.is_alive():
+                self.analysis_thread.join(timeout=2.0)
+                if self.analysis_thread.is_alive():
+                    self._handle_error("Analysis thread failed to stop")
 
             # Clear state
-            self.audio_buffer.clear()
-            self.latency_history.clear()
+            self.cleanup()
+
+    def cleanup(self) -> None:
+        """Clean up resources"""
+        self.stop()
+        self.audio_buffer.clear()
+        self.latency_history.clear()
+        self.callbacks = {k: [] for k in self.callbacks}
+        self.state_manager.clear()
 
     def get_state(self) -> Dict[str, Any]:
         """Get current audio processing state"""
@@ -175,5 +204,10 @@ class AudioProcessor:
                 "average_latency": self.average_latency,
                 "buffer_available": self.audio_buffer.available_samples,
                 "is_running": self.is_running,
+                "error_count": len([c for c in self.callbacks["on_error"] if c]),
             },
         }
+
+    def __del__(self) -> None:
+        """Ensure cleanup on deletion"""
+        self.cleanup()

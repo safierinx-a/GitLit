@@ -6,7 +6,7 @@ import numpy as np
 from ..core.config import PatternConfig
 from ..core.state import PatternState
 from ..core.exceptions import ValidationError
-from ..led.controller import LEDController
+from ..core.led import LEDController
 from .base import BasePattern, ParameterSpec, ModifiableAttribute, BaseModifier
 from .types import (
     SolidPattern,
@@ -29,12 +29,23 @@ class PatternEngine:
 
     def __init__(self, led_controller: LEDController):
         self.led_controller = led_controller
-        self.patterns: Dict[str, BasePattern] = {}
+        self._patterns: Dict[str, Type[BasePattern]] = {}
+        self._pattern_instances: Dict[str, BasePattern] = {}
+        self._modifiers: Dict[str, Type[BaseModifier]] = {}
         self.current_pattern: Optional[BasePattern] = None
         self.current_config: Optional[PatternConfig] = None
         self.state = PatternState()
+
+        # Initialize audio processor
         self.audio_processor = AudioProcessor()
+        self.audio_processor.register_callback("on_beat", self._on_beat)
+        self.audio_processor.register_callback(
+            "on_feature_update", self._on_audio_feature
+        )
+        self.audio_processor.register_callback("on_error", self._on_audio_error)
+
         self._register_patterns()
+        self._register_modifiers()
 
     def _register_patterns(self) -> None:
         """Register available patterns with automatic name generation"""
@@ -55,34 +66,103 @@ class PatternEngine:
 
         for pattern_class in pattern_classes:
             name = pattern_class.__name__.lower().replace("pattern", "")
-            self.patterns[name] = pattern_class(self.led_controller.config.led_count)
+            pattern = pattern_class(self.led_controller.config.led_count)
+            self._patterns[name] = pattern_class
+            self._pattern_instances[name] = pattern
             logger.info(f"Registered pattern: {name}")
+
+    def _register_modifiers(self) -> None:
+        """Register available modifiers"""
+        # Import modifiers here to avoid circular imports
+        from .modifiers import AVAILABLE_MODIFIERS
+
+        self._modifiers = {
+            mod.__name__.lower().replace("modifier", ""): mod
+            for mod in AVAILABLE_MODIFIERS
+        }
+        logger.info(f"Registered {len(self._modifiers)} modifiers")
+
+    def _on_beat(self, beat_data: Dict[str, Any]) -> None:
+        """Handle beat detection events"""
+        if self.current_pattern and self.current_config:
+            if self.current_config.modifiers:
+                for mod in self.current_config.modifiers:
+                    if mod.get("trigger") == "beat":
+                        mod["parameters"] = mod.get("parameters", {})
+                        mod["parameters"]["intensity"] = beat_data.get(
+                            "confidence", 0.5
+                        )
+
+    def _on_audio_feature(self, features: Dict[str, Any]) -> None:
+        """Handle audio feature updates"""
+        if self.current_pattern and self.current_config:
+            if self.current_config.modifiers:
+                for mod in self.current_config.modifiers:
+                    if mod.get("audio_reactive"):
+                        feature = features.get(mod.get("audio_feature"))
+                        if feature is not None:
+                            mod["parameters"] = mod.get("parameters", {})
+                            mod["parameters"]["value"] = feature
+
+    def _on_audio_error(self, error: str) -> None:
+        """Handle audio processing errors"""
+        logger.error(f"Audio processing error: {error}")
 
     def update(self, time_ms: float) -> Optional[np.ndarray]:
         """Update pattern and apply modifiers"""
-        if not self.ui_state.active_pattern:
+        if not self.current_pattern:
             return None
 
-        # Generate base pattern
-        frame = self.ui_state.active_pattern.generate(
-            time_ms, self.ui_state.pattern_params
-        )
-
-        # Apply modifiers with audio if enabled
-        if self.ui_state.audio_enabled:
-            audio_metrics = self.audio_processor.process_audio(
-                self.audio_processor.buffer
+        try:
+            # Generate base pattern
+            frame = self.current_pattern.generate(
+                time_ms, self.current_config.parameters
             )
 
-            # Apply audio-bound modifiers
-            for binding in self.ui_state.audio_bindings:
-                if binding.modifier.enabled:
-                    value = audio_metrics[binding.audio_metric]
-                    value = value * binding.scale + binding.offset
-                    params = {binding.parameter: value}
-                    frame = binding.modifier.apply(frame, params)
+            # Apply modifiers if configured
+            if self.current_config and self.current_config.modifiers:
+                for modifier_config in self.current_config.modifiers:
+                    modifier = self._modifiers.get(modifier_config["name"])
+                    if modifier and modifier_config.get("enabled", True):
+                        params = modifier_config.get("parameters", {})
+                        frame = modifier.apply(frame, params)
 
-        return frame
+            # Update LEDs
+            self._update_leds(frame)
+            return frame
+
+        except Exception as e:
+            logger.error(f"Pattern update error: {e}")
+            return None
+
+    def cleanup(self) -> None:
+        """Clean up resources"""
+        try:
+            # Stop audio processing
+            if self.audio_processor:
+                self.audio_processor.cleanup()
+
+            # Clear current pattern
+            if self.current_pattern:
+                self.current_pattern.reset()
+            self.current_pattern = None
+            self.current_config = None
+
+            # Clear LED strip
+            self.led_controller.clear()
+            self.led_controller.show()
+
+            # Clear pattern instances
+            self._pattern_instances.clear()
+            self._patterns.clear()
+            self._modifiers.clear()
+
+        except Exception as e:
+            logger.error(f"Cleanup error: {e}")
+
+    def __del__(self) -> None:
+        """Ensure cleanup on deletion"""
+        self.cleanup()
 
     def _update_leds(self, frame: np.ndarray) -> None:
         """Update LED strip with safety checks"""
@@ -177,10 +257,10 @@ class PatternEngine:
 
     def set_pattern(self, config: PatternConfig) -> None:
         """Set and validate pattern configuration"""
-        if config.name not in self.patterns:
+        if config.name not in self._patterns:
             raise ValidationError(f"Pattern {config.name} not found")
 
-        pattern_class = self.patterns[config.name].__class__
+        pattern_class = self._patterns[config.name]
 
         # Validate pattern parameters
         validated_params = self.validate_parameters(pattern_class, config.parameters)
@@ -191,7 +271,7 @@ class PatternEngine:
                 self.validate_modifier_config(pattern_class, modifier)
 
         # Apply validated configuration
-        self.current_pattern = self.patterns[config.name]
+        self.current_pattern = pattern_class(self.led_controller.config.led_count)
         self.current_config = PatternConfig(
             name=config.name, parameters=validated_params, modifiers=config.modifiers
         )

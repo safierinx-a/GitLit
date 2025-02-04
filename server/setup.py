@@ -29,7 +29,7 @@ setup(
             "mypy>=1.7.1",
         ]
     },
-    python_requires=">=3.11",
+    python_requires=">=3.10",
     author="GitLit Team",
     description="Audio reactive LED pattern server",
     long_description=long_description,
@@ -38,6 +38,7 @@ setup(
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
     ],
 )

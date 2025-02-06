@@ -7,7 +7,6 @@ import yaml
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(project_root)
 
-from src.led.controller import LEDController, LEDConfig
 from src.patterns.engine import PatternEngine
 from src.core.config import PatternConfig
 
@@ -17,17 +16,13 @@ def load_config():
     config_path = os.path.join(project_root, "config/led_config.yaml")
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    return LEDConfig(
-        led_count=config["led_strip"]["count"],
-        brightness=config["led_strip"]["startup_brightness"],
-    )
+    return config["led_strip"]["count"]
 
 
 def test_basic_patterns():
     """Test basic pattern functionality"""
-    config = load_config()
-    led_controller = LEDController(config)
-    pattern_engine = PatternEngine(led_controller)
+    led_count = load_config()
+    pattern_engine = PatternEngine(led_count)
 
     try:
         patterns_to_test = [
@@ -63,7 +58,7 @@ def test_basic_patterns():
                 sleep(0.033)
 
     finally:
-        led_controller.cleanup()
+        pattern_engine.cleanup()
 
 
 if __name__ == "__main__":

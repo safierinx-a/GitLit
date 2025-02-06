@@ -8,7 +8,6 @@ import select
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(project_root)
 
-from src.led.controller import LEDController, LEDConfig
 from src.patterns import (
     WavePattern,
     RainbowPattern,
@@ -37,10 +36,7 @@ def load_config():
     config_path = os.path.join(project_root, "config/led_config.yaml")
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    return LEDConfig(
-        led_count=config["led_strip"]["count"],
-        brightness=config["led_strip"]["startup_brightness"],
-    )
+    return config["led_strip"]["count"]
 
 
 class ModifierState:
@@ -65,8 +61,7 @@ class ModifierState:
 
 
 def main():
-    config = load_config()
-    controller = LEDController(config)
+    led_count = load_config()
 
     # Pattern parameter controls
     pattern_controls = {
@@ -172,7 +167,7 @@ def main():
     # Initialize with first pattern
     current_pattern_key = "p1"
     pattern_class, pattern_params = patterns[current_pattern_key]
-    pattern = pattern_class(controller.config.led_count)
+    pattern = pattern_class(led_count)
     print(f"Starting with pattern: {pattern_class.__name__}")
 
     # Track states
@@ -206,7 +201,7 @@ def main():
                     pattern_key = f"p{key}"
                     if pattern_key in patterns:
                         pattern_class, pattern_params = patterns[pattern_key]
-                        pattern = pattern_class(controller.config.led_count)
+                        pattern = pattern_class(led_count)
                         print(f"Switched to pattern {pattern_class.__name__}")
                     pattern_select_mode = False
 
@@ -267,17 +262,17 @@ def main():
                 if mod_state.enabled:
                     frame = mod_state.modifier.apply(frame, mod_state.get_params())
 
-            # Update LEDs
-            for i, color in enumerate(frame):
-                controller.set_pixel(i, color[0], color[1], color[2])
-            controller.show()
+            # Print frame data for visualization
+            print("\033[H\033[J")  # Clear screen
+            print("Pattern:", pattern_class.__name__)
+            print("Active modifiers:", [k for k, v in modifiers.items() if v.enabled])
+            print("\nFrame preview (first 10 pixels):")
+            print(frame[:10])
 
             time.sleep(1 / 60)
 
     except KeyboardInterrupt:
         print("\nStopping...")
-    finally:
-        controller.cleanup()
 
 
 if __name__ == "__main__":

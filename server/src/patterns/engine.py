@@ -6,7 +6,6 @@ import numpy as np
 from ..core.config import PatternConfig
 from ..core.state import PatternState
 from ..core.exceptions import ValidationError
-from ..core.led import LEDController
 from .base import BasePattern, ParameterSpec, ModifiableAttribute, BaseModifier
 from .types import (
     SolidPattern,
@@ -19,30 +18,22 @@ from .types import (
     MeteorPattern,
     BreathePattern,
 )
-from ..audio.processor import AudioProcessor
+from ..api.websocket import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 
 
 class PatternEngine:
-    """Manages pattern execution and validation"""
+    """Manages pattern generation and validation"""
 
-    def __init__(self, led_controller: LEDController):
-        self.led_controller = led_controller
+    def __init__(self, num_pixels: int):
+        self._num_pixels = num_pixels
         self._patterns: Dict[str, Type[BasePattern]] = {}
         self._pattern_instances: Dict[str, BasePattern] = {}
         self._modifiers: Dict[str, Type[BaseModifier]] = {}
         self.current_pattern: Optional[BasePattern] = None
         self.current_config: Optional[PatternConfig] = None
         self.state = PatternState()
-
-        # Initialize audio processor
-        self.audio_processor = AudioProcessor()
-        self.audio_processor.register_callback("on_beat", self._on_beat)
-        self.audio_processor.register_callback(
-            "on_feature_update", self._on_audio_feature
-        )
-        self.audio_processor.register_callback("on_error", self._on_audio_error)
 
         self._register_patterns()
         self._register_modifiers()
@@ -66,7 +57,7 @@ class PatternEngine:
 
         for pattern_class in pattern_classes:
             name = pattern_class.__name__.lower().replace("pattern", "")
-            pattern = pattern_class(self.led_controller.config.led_count)
+            pattern = pattern_class(self._num_pixels)
             self._patterns[name] = pattern_class
             self._pattern_instances[name] = pattern
             logger.info(f"Registered pattern: {name}")
@@ -82,34 +73,8 @@ class PatternEngine:
         }
         logger.info(f"Registered {len(self._modifiers)} modifiers")
 
-    def _on_beat(self, beat_data: Dict[str, Any]) -> None:
-        """Handle beat detection events"""
-        if self.current_pattern and self.current_config:
-            if self.current_config.modifiers:
-                for mod in self.current_config.modifiers:
-                    if mod.get("trigger") == "beat":
-                        mod["parameters"] = mod.get("parameters", {})
-                        mod["parameters"]["intensity"] = beat_data.get(
-                            "confidence", 0.5
-                        )
-
-    def _on_audio_feature(self, features: Dict[str, Any]) -> None:
-        """Handle audio feature updates"""
-        if self.current_pattern and self.current_config:
-            if self.current_config.modifiers:
-                for mod in self.current_config.modifiers:
-                    if mod.get("audio_reactive"):
-                        feature = features.get(mod.get("audio_feature"))
-                        if feature is not None:
-                            mod["parameters"] = mod.get("parameters", {})
-                            mod["parameters"]["value"] = feature
-
-    def _on_audio_error(self, error: str) -> None:
-        """Handle audio processing errors"""
-        logger.error(f"Audio processing error: {error}")
-
     def update(self, time_ms: float) -> Optional[np.ndarray]:
-        """Update pattern and apply modifiers"""
+        """Generate pattern frame and send via WebSocket"""
         if not self.current_pattern:
             return None
 
@@ -127,8 +92,14 @@ class PatternEngine:
                         params = modifier_config.get("parameters", {})
                         frame = modifier.apply(frame, params)
 
-            # Update LEDs
-            self._update_leds(frame)
+            # Send frame via WebSocket
+            ws_manager.broadcast(
+                {
+                    "type": "pattern",
+                    "data": {"frame": frame.tolist(), "timestamp": time_ms},
+                }
+            )
+
             return frame
 
         except Exception as e:
@@ -138,24 +109,19 @@ class PatternEngine:
     def cleanup(self) -> None:
         """Clean up resources"""
         try:
-            # Stop audio processing
-            if self.audio_processor:
-                self.audio_processor.cleanup()
-
             # Clear current pattern
             if self.current_pattern:
                 self.current_pattern.reset()
             self.current_pattern = None
             self.current_config = None
 
-            # Clear LED strip
-            self.led_controller.clear()
-            self.led_controller.show()
-
             # Clear pattern instances
             self._pattern_instances.clear()
             self._patterns.clear()
             self._modifiers.clear()
+
+            # Send clear command via WebSocket
+            ws_manager.broadcast({"type": "clear"})
 
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
@@ -163,16 +129,6 @@ class PatternEngine:
     def __del__(self) -> None:
         """Ensure cleanup on deletion"""
         self.cleanup()
-
-    def _update_leds(self, frame: np.ndarray) -> None:
-        """Update LED strip with safety checks"""
-        try:
-            for i in range(len(frame)):
-                self.led_controller.set_pixel(i, *frame[i])
-            self.led_controller.show()
-        except Exception as e:
-            logger.error(f"LED update failed: {e}")
-            self.led_controller.emergency_stop()
 
     def validate_parameters(
         self, pattern_class: Type[BasePattern], params: Dict[str, Any]
@@ -271,7 +227,7 @@ class PatternEngine:
                 self.validate_modifier_config(pattern_class, modifier)
 
         # Apply validated configuration
-        self.current_pattern = pattern_class(self.led_controller.config.led_count)
+        self.current_pattern = pattern_class(self._num_pixels)
         self.current_config = PatternConfig(
             name=config.name, parameters=validated_params, modifiers=config.modifiers
         )

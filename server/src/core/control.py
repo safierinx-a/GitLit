@@ -1,6 +1,7 @@
 import threading
 import queue
 import time
+import logging
 from typing import Dict, Any, Optional, Callable, List
 from dataclasses import dataclass
 from enum import Enum
@@ -8,6 +9,9 @@ from enum import Enum
 from ..patterns.engine import PatternEngine
 from ..led.controller import LEDController, create_controller
 from ..patterns.base import BasePattern
+from .config import Command, CommandType, AudioBinding
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -47,8 +51,8 @@ class SystemController:
     def __init__(self, config: Dict[str, Any]):
         # Initialize components
         self.config = config
-        self.led_controller = create_controller(config["led"])
-        self.pattern_engine = PatternEngine(self.led_controller)
+        self.led_config = config["led"]
+        self.pattern_engine = PatternEngine(self.led_config["led_count"])
 
         # Control state
         self.is_running = False
@@ -90,74 +94,63 @@ class SystemController:
             if self.update_thread:
                 self.update_thread.join(timeout=1.0)
 
-            self.led_controller.cleanup()
+            self.pattern_engine.cleanup()
 
     def _update_loop(self) -> None:
-        """Main update loop for pattern generation and LED control"""
+        """Main update loop"""
         while self.is_running:
             try:
                 # Process any pending commands
-                self._process_commands()
+                while not self.command_queue.empty():
+                    cmd = self.command_queue.get_nowait()
+                    self._handle_command(cmd)
 
-                # Update pattern and LEDs
-                current_time = time.time() * 1000  # ms
-                frame = self.pattern_engine.update(current_time)
+                # Update pattern
+                current_time = time.time() * 1000  # Convert to milliseconds
+                self.pattern_engine.update(current_time)
 
-                # Monitor performance
+                # Update performance metrics
                 frame_time = time.time() * 1000 - current_time
                 self.frame_times.append(frame_time)
-                if len(self.frame_times) > 100:
+                if len(self.frame_times) > 60:
                     self.frame_times.pop(0)
+                self.last_frame_time = frame_time
 
-                # Sleep to maintain target frame rate
-                sleep_time = max(0, (1.0 / self.target_fps) - (frame_time / 1000))
+                # Sleep to maintain target FPS
+                sleep_time = max(0, 1.0 / self.target_fps - frame_time / 1000)
                 if sleep_time > 0:
                     time.sleep(sleep_time)
 
             except Exception as e:
-                print(f"Error in update loop: {e}")
+                logger.error(f"Update loop error: {e}")
+                time.sleep(0.1)  # Prevent tight error loop
 
-    def _process_commands(self) -> None:
-        """Process commands from the queue"""
-        try:
-            while True:
-                command = self.command_queue.get_nowait()
-
-                if command.type == CommandType.STOP:
-                    break
-
-                elif command.type == CommandType.SET_PATTERN:
-                    self.pattern_engine.set_pattern(command.params["pattern"])
-
-                elif command.type == CommandType.UPDATE_PARAMS:
-                    self.pattern_engine.update_parameters(command.params)
-
-                elif command.type == CommandType.TOGGLE_MODIFIER:
-                    name = command.params["name"]
-                    if name in self.pattern_engine.active_modifiers:
-                        self.pattern_engine.remove_modifier(name)
-                    else:
-                        self.pattern_engine.add_modifier(
-                            name, command.params.get("params", {})
-                        )
-
-                elif command.type == CommandType.SET_BRIGHTNESS:
-                    self.led_controller.set_brightness(command.params["brightness"])
-
-                elif command.type == CommandType.ADD_AUDIO_BINDING:
-                    if self.audio_enabled:
-                        self.audio_bindings.append(AudioBinding(**command.params))
-
-                elif command.type == CommandType.REMOVE_AUDIO_BINDING:
-                    if self.audio_enabled:
-                        self.audio_bindings = [
-                            b
-                            for b in self.audio_bindings
-                            if b.modifier_name != command.params["modifier_name"]
-                        ]
-
-        except queue.Empty:
-            pass
+    def _handle_command(self, command: Command) -> None:
+        """Handle a command from the queue"""
+        if command.type == CommandType.STOP:
+            self.is_running = False
+        elif command.type == CommandType.SET_PATTERN:
+            self.pattern_engine.set_pattern(command.params["pattern"])
+        elif command.type == CommandType.UPDATE_PARAMS:
+            self.pattern_engine.update_parameters(command.params)
+        elif command.type == CommandType.TOGGLE_MODIFIER:
+            name = command.params["name"]
+            if name in self.pattern_engine.active_modifiers:
+                self.pattern_engine.remove_modifier(name)
+            else:
+                self.pattern_engine.add_modifier(name, command.params.get("params", {}))
+        elif command.type == CommandType.SET_BRIGHTNESS:
+            self.led_config["brightness"] = command.params["brightness"]
+        elif command.type == CommandType.ADD_AUDIO_BINDING:
+            if self.audio_enabled:
+                self.audio_bindings.append(AudioBinding(**command.params))
+        elif command.type == CommandType.REMOVE_AUDIO_BINDING:
+            if self.audio_enabled:
+                self.audio_bindings = [
+                    b
+                    for b in self.audio_bindings
+                    if b.modifier_name != command.params["modifier_name"]
+                ]
 
     def set_pattern(self, pattern_name: str, params: Optional[Dict] = None) -> None:
         """Set the active pattern"""

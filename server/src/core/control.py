@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from enum import Enum
 
 from ..patterns.engine import PatternEngine
-from ..led.controller import LEDController, create_controller
 from ..patterns.base import BasePattern
 from .config import Command, CommandType, AudioBinding
 
@@ -51,7 +50,7 @@ class SystemController:
     def __init__(self, config: Dict[str, Any]):
         # Initialize components
         self.config = config
-        self.led_config = config["led"]
+        self.led_config = config.get("led", {"led_count": 300})
         self.pattern_engine = PatternEngine(self.led_config["led_count"])
 
         # Control state

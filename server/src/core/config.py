@@ -27,10 +27,7 @@ class SystemConfig:
     features: FeatureFlags = field(default_factory=FeatureFlags)
     led: Dict[str, Any] = field(
         default_factory=lambda: {
-            "type": "direct",  # or "remote"
-            "num_pixels": 300,
-            "pin": 18,
-            "freq": 800000,
+            "led_count": 300,
             "brightness": 1.0,
         }
     )

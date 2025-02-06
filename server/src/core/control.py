@@ -8,7 +8,7 @@ from enum import Enum
 
 from ..patterns.engine import PatternEngine
 from ..patterns.base import BasePattern
-from .config import Command, CommandType, AudioBinding
+from .config import SystemConfig
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,8 @@ import numpy as np
 from ..core.config import PatternConfig
 from ..core.state import PatternState
 from ..core.exceptions import ValidationError
-from .base import BasePattern, ParameterSpec, ModifiableAttribute, BaseModifier
+from .base import BasePattern, ParameterSpec, ModifiableAttribute
+from .modifiers.base import BaseModifier
 from .types import (
     SolidPattern,
     GradientPattern,

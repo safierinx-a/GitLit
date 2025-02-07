@@ -1,13 +1,13 @@
-import threading
-import queue
-import time
 import logging
-from typing import Dict, Any, Optional, Callable, List
+import queue
+import threading
+import time
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Callable, Dict, List, Optional
 
-from ..patterns.engine import PatternEngine
 from ..patterns.base import BasePattern
+from ..patterns.engine import PatternEngine
 from .config import SystemConfig
 
 logger = logging.getLogger(__name__)
@@ -210,12 +210,16 @@ class SystemController:
             "pattern": self.pattern_engine.current_pattern,
             "modifiers": list(self.pattern_engine.active_modifiers.keys()),
             "performance": {
-                "fps": 1000 / (sum(self.frame_times) / len(self.frame_times))
-                if self.frame_times
-                else 0,
-                "frame_time": sum(self.frame_times) / len(self.frame_times)
-                if self.frame_times
-                else 0,
+                "fps": (
+                    1000 / (sum(self.frame_times) / len(self.frame_times))
+                    if self.frame_times
+                    else 0
+                ),
+                "frame_time": (
+                    sum(self.frame_times) / len(self.frame_times)
+                    if self.frame_times
+                    else 0
+                ),
             },
         }
 

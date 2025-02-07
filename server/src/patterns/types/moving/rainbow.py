@@ -1,6 +1,8 @@
-from ...base import BasePattern, ParameterSpec, ModifiableAttribute
+from typing import Any, Dict, List
+
 import numpy as np
-from typing import Dict, Any, List
+
+from ...base import BasePattern, ModifiableAttribute, ParameterSpec
 
 
 class RainbowPattern(BasePattern):

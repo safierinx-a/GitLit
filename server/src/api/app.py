@@ -1,13 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-import asyncio
-from typing import Optional
 
+from ..audio.processor import AudioProcessor
 from ..core.config import SystemConfig
 from ..core.control import SystemController
 from . import control, websocket
-from .audio_stream import AudioStreamServer, AudioStreamConfig
-from ..audio.processor import AudioProcessor
+from .audio_stream import AudioStreamConfig, AudioStreamServer
 
 app = FastAPI(title="GitLit Control API")
 

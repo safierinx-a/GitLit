@@ -1,8 +1,10 @@
-import numpy as np
 import math
 import time
+from typing import Any, Dict
+
+import numpy as np
+
 from ..base import BaseModifier, ModifierSpec
-from typing import Dict, Any
 
 
 class StrobeModifier(BaseModifier):

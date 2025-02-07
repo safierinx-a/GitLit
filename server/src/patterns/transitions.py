@@ -1,5 +1,7 @@
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 import numpy as np
+
 from .base import BasePattern
 
 

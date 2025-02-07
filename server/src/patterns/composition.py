@@ -1,8 +1,10 @@
-from typing import Dict, Any, List, Tuple
-import numpy as np
 from enum import Enum
-from .base import BasePattern
+from typing import Any, Dict, List, Tuple
+
+import numpy as np
+
 from ..core.exceptions import ValidationError
+from .base import BasePattern
 
 
 class BlendMode(Enum):

@@ -1,6 +1,8 @@
-from ..base import BaseModifier, ModifierSpec
+from typing import Any, Dict, List
+
 import numpy as np
-from typing import Dict, Any, List
+
+from ..base import BaseModifier, ModifierSpec
 
 
 class DirectionModifier(BaseModifier):

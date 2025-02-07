@@ -1,6 +1,8 @@
-from ...base import BasePattern, ParameterSpec, ModifiableAttribute, ColorSpec
+from typing import Any, Dict, List
+
 import numpy as np
-from typing import Dict, Any, List
+
+from ...base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
 
 
 class ChasePattern(BasePattern):
@@ -57,29 +59,29 @@ class ChasePattern(BasePattern):
         ]
 
     def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
+        """Generate chase pattern using state"""
+        speed = params.get("speed", 1.0)
         count = params.get("count", 3)
-        size = params.get("size", 2)
-        spacing = params.get("spacing", 1.0)
-        fade = params.get("fade", 0.5)
-        color = np.array(
-            [params.get("red", 255), params.get("green", 0), params.get("blue", 0)],
-            dtype=np.uint8,
-        )
+        width = params.get("width", 0.2)
+        color = [params.get("red", 255), params.get("green", 0), params.get("blue", 0)]
 
-        self.frame_buffer.fill(0)
+        # Calculate spacing between segments
+        spacing = 1.0 / count
 
-        # Use timing system for movement
-        t = self.timing.get_phase()
+        # Use normalized time from state
+        t = self.state.get_normalized_time(time_ms * speed)
 
-        # Draw each chase dot
-        for i in range(count):
-            phase = (t + (i / count)) % 1.0
-            pos = int(phase * self.led_count)
-
-            # Draw dot and trail
-            for j in range(size + int(size * fade)):
-                pixel_pos = (pos - j) % self.led_count
-                intensity = 1.0 if j < size else 1.0 - ((j - size) / (size * fade))
-                self.frame_buffer[pixel_pos] = (color * intensity).astype(np.uint8)
+        # Generate chase segments
+        for i in range(self.led_count):
+            pos = (i / self.led_count + t) % 1.0
+            for j in range(count):
+                segment_pos = j / count
+                dist = min(abs(pos - segment_pos), abs(pos - segment_pos - 1))
+                if dist < width / 2:
+                    brightness = 1.0 - (dist / (width / 2))
+                    self.frame_buffer[i] = [int(c * brightness) for c in color]
+                    break
+            else:
+                self.frame_buffer[i] = [0, 0, 0]
 
         return self.frame_buffer

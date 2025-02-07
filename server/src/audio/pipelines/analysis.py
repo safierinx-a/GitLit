@@ -1,8 +1,10 @@
+from typing import Any, Dict, List, Optional, Tuple
+
 import librosa
 import numpy as np
-from typing import Dict, Any, Optional, List, Tuple
-from .base import AudioPipeline, PipelineConfig
+
 from ..state.models import AudioState
+from .base import AudioPipeline, PipelineConfig
 
 
 class AnalysisPipeline(AudioPipeline):

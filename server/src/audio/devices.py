@@ -1,8 +1,9 @@
-import pyaudio
-import numpy as np
 import threading
 import time
-from typing import Dict, Optional, Callable, List, Any, Set
+from typing import Any, Callable, Dict, List, Optional, Set
+
+import numpy as np
+import pyaudio
 
 
 class AudioDeviceManager:

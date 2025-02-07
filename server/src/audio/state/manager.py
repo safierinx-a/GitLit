@@ -1,14 +1,15 @@
-from typing import Optional, Dict, Any, Callable
 from threading import Lock
+from typing import Any, Callable, Dict, Optional
+
 from .models import (
     AudioState,
     BeatInfo,
-    SpectralInfo,
     EnergyInfo,
-    RhythmInfo,
-    StructureInfo,
     HarmonyInfo,
+    RhythmInfo,
     SeparationInfo,
+    SpectralInfo,
+    StructureInfo,
 )
 
 

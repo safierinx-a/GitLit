@@ -1,6 +1,8 @@
+from typing import Any, Dict
+
 import numpy as np
+
 from ..base import BaseModifier, ModifierSpec
-from typing import Dict, Any
 
 
 class MirrorModifier(BaseModifier):

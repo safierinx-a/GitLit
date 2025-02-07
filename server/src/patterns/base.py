@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Union
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Union
+
 import numpy as np
-from ..core.state import PatternState
+
 from ..core.exceptions import PatternError
+from ..core.state import PatternState
 from ..core.timing import TimeState
 
 

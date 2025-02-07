@@ -1,6 +1,6 @@
-from .static import SolidPattern, GradientPattern
-from .moving import WavePattern, RainbowPattern, ChasePattern, ScanPattern
-from .particle import TwinklePattern, MeteorPattern, BreathePattern
+from .moving import ChasePattern, RainbowPattern, ScanPattern, WavePattern
+from .particle import BreathePattern, MeteorPattern, TwinklePattern
+from .static import GradientPattern, SolidPattern
 
 __all__ = [
     "SolidPattern",

@@ -1,6 +1,7 @@
-import numpy as np
 from threading import Lock
 from typing import Optional, Tuple
+
+import numpy as np
 
 
 class CircularAudioBuffer:

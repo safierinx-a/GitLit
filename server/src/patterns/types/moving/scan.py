@@ -1,6 +1,8 @@
-from ...base import BasePattern, ParameterSpec, ModifiableAttribute, ColorSpec
+from typing import Any, Dict, List
+
 import numpy as np
-from typing import Dict, Any, List
+
+from ...base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
 
 
 class ScanPattern(BasePattern):

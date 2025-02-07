@@ -1,10 +1,12 @@
-from typing import Dict, Any, List
-import random
 import math
+import random
+from typing import Any, Dict, List
+
 import numpy as np
+
 from ...core.exceptions import ValidationError
 from ...core.state import PatternState
-from ..base import BasePattern, ParameterSpec, ModifiableAttribute, ColorSpec
+from ..base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
 
 
 class TwinklePattern(BasePattern):
@@ -12,9 +14,9 @@ class TwinklePattern(BasePattern):
 
     def __init__(self, led_count: int):
         super().__init__(led_count)
-        self.state.cached_data[
-            "active_twinkles"
-        ] = {}  # {position: (brightness, color)}
+        self.state.cached_data["active_twinkles"] = (
+            {}
+        )  # {position: (brightness, color)}
         self.state.cached_data["last_density"] = 0.1
         self.state.cached_data["last_fade_speed"] = 1.0
 

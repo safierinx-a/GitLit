@@ -1,6 +1,8 @@
-from .engine import BaseModifier
+from typing import Any, Dict
+
 import numpy as np
-from typing import Dict, Any
+
+from .engine import BaseModifier
 
 
 class BrightnessModifier(BaseModifier):

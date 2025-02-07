@@ -1,25 +1,26 @@
-from typing import Dict, Any, Optional, List, Type
-from dataclasses import asdict
 import logging
+from dataclasses import asdict
+from typing import Any, Dict, List, Optional, Type
+
 import numpy as np
 
+from ..api.websocket import manager as ws_manager
 from ..core.config import PatternConfig
-from ..core.state import PatternState
 from ..core.exceptions import ValidationError
-from .base import BasePattern, ParameterSpec, ModifiableAttribute
+from ..core.state import PatternState
+from .base import BasePattern, ModifiableAttribute, ParameterSpec
 from .modifiers.base import BaseModifier
 from .types import (
-    SolidPattern,
-    GradientPattern,
-    WavePattern,
-    RainbowPattern,
-    ChasePattern,
-    ScanPattern,
-    TwinklePattern,
-    MeteorPattern,
     BreathePattern,
+    ChasePattern,
+    GradientPattern,
+    MeteorPattern,
+    RainbowPattern,
+    ScanPattern,
+    SolidPattern,
+    TwinklePattern,
+    WavePattern,
 )
-from ..api.websocket import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 

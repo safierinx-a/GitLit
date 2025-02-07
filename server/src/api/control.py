@@ -1,8 +1,9 @@
+from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Dict, Any, List, Optional
 
-from ..core.control import SystemController, AudioBinding
+from ..core.control import SystemController
 
 router = APIRouter(prefix="/control", tags=["control"])
 

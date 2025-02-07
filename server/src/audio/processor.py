@@ -1,15 +1,16 @@
-import time
-import threading
 import atexit
-from typing import Dict, Optional, Callable, Any
+import threading
+import time
+from typing import Any, Callable, Dict, Optional
+
 import numpy as np
 
-from .pipelines.base import PipelineConfig
-from .pipelines.realtime import RealtimePipeline
-from .pipelines.analysis import AnalysisPipeline
-from .state.manager import StateManager
 from .buffer.circular import CircularAudioBuffer
 from .devices import AudioDeviceManager
+from .pipelines.analysis import AnalysisPipeline
+from .pipelines.base import PipelineConfig
+from .pipelines.realtime import RealtimePipeline
+from .state.manager import StateManager
 
 
 class AudioProcessor:

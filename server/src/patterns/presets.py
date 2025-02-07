@@ -1,7 +1,8 @@
-from dataclasses import dataclass, field
-from typing import Dict, Any, List, Type, Optional
 import json
 import os
+from dataclasses import dataclass, field, asdict
+from typing import Any, Dict, List, Optional, Type
+
 from .base import BasePattern
 from .config import PatternConfig
 

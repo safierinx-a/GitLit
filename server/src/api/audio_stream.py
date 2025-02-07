@@ -1,9 +1,11 @@
 import asyncio
-import numpy as np
-from typing import Optional, Dict, Any
-import struct
 import logging
+import struct
 from dataclasses import dataclass
+from typing import Any, Dict, Optional, List
+
+import numpy as np
+from fastapi import WebSocket
 
 from ..audio.processor import AudioProcessor
 from .websocket import manager as ws_manager
@@ -113,3 +115,30 @@ class AudioStreamProtocol(asyncio.DatagramProtocol):
 
         # Process audio data asynchronously
         asyncio.create_task(self.server.process_audio_chunk(data))
+
+    async def handle_audio_stream(self, websocket: WebSocket):
+        """Handle incoming audio stream from client"""
+        try:
+            await websocket.accept()
+            self.active_connections.append(websocket)
+
+            while True:
+                try:
+                    # Receive audio data from client
+                    data = await websocket.receive_bytes()
+
+                    # Process audio data
+                    self.processor.process_audio_data(
+                        np.frombuffer(data, dtype=np.float32)
+                    )
+
+                except Exception as e:
+                    print(f"Error processing audio data: {e}")
+                    break
+
+        except Exception as e:
+            print(f"WebSocket connection error: {e}")
+
+        finally:
+            if websocket in self.active_connections:
+                self.active_connections.remove(websocket)

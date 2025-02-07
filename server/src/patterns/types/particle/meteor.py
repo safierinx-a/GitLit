@@ -1,7 +1,9 @@
-from ...base import BasePattern, ParameterSpec, ModifiableAttribute, ColorSpec
-import numpy as np
-from typing import Dict, Any, List
 import random
+from typing import Any, Dict, List
+
+import numpy as np
+
+from ...base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
 
 
 class MeteorPattern(BasePattern):

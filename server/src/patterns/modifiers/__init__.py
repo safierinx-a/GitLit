@@ -1,14 +1,14 @@
 from .effects import (
     BrightnessModifier,
-    SpeedModifier,
-    DirectionModifier,
-    ColorTempModifier,
-    SaturationModifier,
-    MirrorModifier,
-    SegmentModifier,
-    StrobeModifier,
-    FadeModifier,
     ColorCycleModifier,
+    ColorTempModifier,
+    DirectionModifier,
+    FadeModifier,
+    MirrorModifier,
+    SaturationModifier,
+    SegmentModifier,
+    SpeedModifier,
+    StrobeModifier,
 )
 
 __all__ = [

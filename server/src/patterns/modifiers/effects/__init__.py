@@ -1,9 +1,9 @@
 from .brightness import BrightnessModifier
-from .speed import SpeedModifier
+from .color import ColorCycleModifier, ColorTempModifier, SaturationModifier
 from .direction import DirectionModifier
-from .color import ColorTempModifier, SaturationModifier, ColorCycleModifier
 from .spatial import MirrorModifier, SegmentModifier
-from .time import StrobeModifier, FadeModifier
+from .speed import SpeedModifier
+from .time import FadeModifier, StrobeModifier
 
 __all__ = [
     "BrightnessModifier",

@@ -46,6 +46,20 @@ class OnsetDetector:
         self.detection_buffer = []
         self.last_onset_time = 0.0
 
+    def process(self, audio_data: np.ndarray) -> bool:
+        """Process audio data and return whether an onset was detected"""
+        # Ensure frame size
+        if len(audio_data) != self.frame_size:
+            # Pad or truncate to match frame size
+            if len(audio_data) < self.frame_size:
+                audio_data = np.pad(audio_data, (0, self.frame_size - len(audio_data)))
+            else:
+                audio_data = audio_data[: self.frame_size]
+
+        # Process frame
+        detection = self.process_frame(audio_data)
+        return len(detection.positions) > 0
+
     def process_frame(self, frame: np.ndarray) -> OnsetDetection:
         """Process a single frame and detect onsets"""
         # Prepare frame

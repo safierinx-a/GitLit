@@ -1,11 +1,11 @@
-from fastapi import FastAPI, WebSocket
+from typing import Optional
+
+from fastapi import FastAPI, WebSocket, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
-from ..audio.processor import AudioProcessor
 from ..core.config import SystemConfig
 from ..core.control import SystemController
 from . import control, websocket
-from .audio_stream import AudioStreamConfig, AudioStreamServer
 
 app = FastAPI(title="GitLit Control API")
 
@@ -18,16 +18,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(control.router)
-app.include_router(websocket.router)
-
 # Global instances
-audio_server: Optional[AudioStreamServer] = None
+system_controller: Optional[SystemController] = None
+
+
+def get_controller() -> SystemController:
+    """Dependency injection for system controller"""
+    if system_controller is None:
+        raise RuntimeError("System controller not initialized")
+    return system_controller
+
+
+# Include routers with dependencies
+app.include_router(control.router, dependencies=[Depends(get_controller)])
+app.include_router(websocket.router)
 
 
 def init_app(config_updates: dict = None) -> FastAPI:
     """Initialize the FastAPI application with system controller"""
+    global system_controller
+
     # Initialize configuration
     config = SystemConfig.create_default()
     if config_updates:
@@ -38,17 +48,19 @@ def init_app(config_updates: dict = None) -> FastAPI:
     control.init_controller(system_controller)
 
     # Initialize audio components only if enabled
-    global audio_server
     if config.features.audio_enabled:
-        # Initialize audio processor and streaming
+        # Import audio components only when needed
+        from ..audio.processor import AudioProcessor
+        from .audio_stream import AudioStreamConfig, AudioStreamServer
+
         audio_processor = AudioProcessor()
         audio_config = AudioStreamConfig(
-            sample_rate=44100,  # Default values
-            channels=2,
-            chunk_size=1024,
-            format="float32",
+            sample_rate=config.audio.sample_rate,
+            channels=config.audio.channels,
+            chunk_size=config.audio.chunk_size,
+            format=config.audio.format,
         )
-        audio_server = AudioStreamServer(audio_config, audio_processor)
+        system_controller.init_audio(audio_processor)
 
     # Start the system
     system_controller.start()
@@ -58,7 +70,7 @@ def init_app(config_updates: dict = None) -> FastAPI:
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up resources on shutdown"""
-    global audio_server
-    if audio_server:
-        audio_server.stop()
-        audio_server = None
+    global system_controller
+    if system_controller:
+        system_controller.stop()
+        system_controller = None

@@ -193,3 +193,12 @@ async def get_available_audio_metrics():
         "spectral_rolloff",
         "spectral_flux",
     ]
+
+
+@router.post("/modifiers/reset")
+async def reset_modifiers():
+    """Reset all active modifiers to their default state"""
+    if not _controller:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    _controller.reset_modifiers()
+    return {"status": "success"}

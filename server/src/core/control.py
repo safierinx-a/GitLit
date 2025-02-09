@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
+import numpy as np
+
 from ..patterns.base import BasePattern
 from ..patterns.engine import PatternEngine
 from .config import SystemConfig
@@ -33,6 +35,7 @@ class CommandType(Enum):
     SET_BRIGHTNESS = "set_brightness"
     ADD_AUDIO_BINDING = "add_audio_binding"
     REMOVE_AUDIO_BINDING = "remove_audio_binding"
+    RESET_MODIFIERS = "reset_modifiers"
     STOP = "stop"
 
 
@@ -47,28 +50,31 @@ class Command:
 class SystemController:
     """Main system controller handling patterns and LED updates"""
 
-    def __init__(self, config: Dict[str, Any]):
-        # Initialize components
+    def __init__(self, config: SystemConfig):
+        # Store configuration
         self.config = config
-        self.led_config = config.get("led", {"led_count": 300})
-        self.pattern_engine = PatternEngine(self.led_config["led_count"])
+
+        # Initialize components
+        self.pattern_engine = PatternEngine(self.config.led.count)
 
         # Control state
         self.is_running = False
-        self.command_queue = queue.Queue()
-        self.update_thread = None
+        self.command_queue: queue.Queue[Command] = queue.Queue()
+        self.update_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
 
         # Performance monitoring
         self.last_frame_time = 0
-        self.frame_times = []
-        self.target_fps = config.get("performance", {}).get("target_fps", 60)
+        self.frame_times: List[float] = []
 
         # Audio state
+        self.audio_processor = None
         self.audio_bindings: List[AudioBinding] = []
-        self.audio_enabled = (
-            config.get("features", {}).get("audio", {}).get("enabled", False)
-        )
+
+    def init_audio(self, audio_processor: Any) -> None:
+        """Initialize audio processing"""
+        self.audio_processor = audio_processor
+        self.config.features.audio_enabled = True
 
     def start(self) -> None:
         """Start the control system"""
@@ -81,19 +87,27 @@ class SystemController:
             self.update_thread.daemon = True
             self.update_thread.start()
 
+            logger.info("System controller started")
+
     def stop(self) -> None:
         """Stop the control system"""
         with self._lock:
             if not self.is_running:
                 return
 
+            logger.info("Stopping system controller...")
             self.is_running = False
             self.command_queue.put(Command(CommandType.STOP, {}))
 
             if self.update_thread:
                 self.update_thread.join(timeout=1.0)
 
+            # Cleanup
             self.pattern_engine.cleanup()
+            if self.audio_processor:
+                self.audio_processor.cleanup()
+
+            logger.info("System controller stopped")
 
     def _update_loop(self) -> None:
         """Main update loop"""
@@ -106,7 +120,11 @@ class SystemController:
 
                 # Update pattern
                 current_time = time.time() * 1000  # Convert to milliseconds
-                self.pattern_engine.update(current_time)
+                frame = self.pattern_engine.update(current_time)
+
+                # Process audio if enabled
+                if self.config.features.audio_enabled and self.audio_processor:
+                    self._process_audio_bindings()
 
                 # Update performance metrics
                 frame_time = time.time() * 1000 - current_time
@@ -116,7 +134,9 @@ class SystemController:
                 self.last_frame_time = frame_time
 
                 # Sleep to maintain target FPS
-                sleep_time = max(0, 1.0 / self.target_fps - frame_time / 1000)
+                sleep_time = max(
+                    0, 1.0 / self.config.performance.target_fps - frame_time / 1000
+                )
                 if sleep_time > 0:
                     time.sleep(sleep_time)
 
@@ -124,32 +144,57 @@ class SystemController:
                 logger.error(f"Update loop error: {e}")
                 time.sleep(0.1)  # Prevent tight error loop
 
+    def _process_audio_bindings(self) -> None:
+        """Process audio bindings and update modifiers"""
+        try:
+            features = self.audio_processor.get_features()
+            if not features:
+                return
+
+            for binding in self.audio_bindings:
+                if binding.audio_metric in features:
+                    value = (
+                        features[binding.audio_metric] * binding.scale + binding.offset
+                    )
+                    self.pattern_engine.update_modifier_parameter(
+                        binding.modifier_name, binding.parameter, value
+                    )
+        except Exception as e:
+            logger.error(f"Audio binding error: {e}")
+
     def _handle_command(self, command: Command) -> None:
         """Handle a command from the queue"""
-        if command.type == CommandType.STOP:
-            self.is_running = False
-        elif command.type == CommandType.SET_PATTERN:
-            self.pattern_engine.set_pattern(command.params["pattern"])
-        elif command.type == CommandType.UPDATE_PARAMS:
-            self.pattern_engine.update_parameters(command.params)
-        elif command.type == CommandType.TOGGLE_MODIFIER:
-            name = command.params["name"]
-            if name in self.pattern_engine.active_modifiers:
-                self.pattern_engine.remove_modifier(name)
-            else:
-                self.pattern_engine.add_modifier(name, command.params.get("params", {}))
-        elif command.type == CommandType.SET_BRIGHTNESS:
-            self.led_config["brightness"] = command.params["brightness"]
-        elif command.type == CommandType.ADD_AUDIO_BINDING:
-            if self.audio_enabled:
-                self.audio_bindings.append(AudioBinding(**command.params))
-        elif command.type == CommandType.REMOVE_AUDIO_BINDING:
-            if self.audio_enabled:
-                self.audio_bindings = [
-                    b
-                    for b in self.audio_bindings
-                    if b.modifier_name != command.params["modifier_name"]
-                ]
+        try:
+            if command.type == CommandType.STOP:
+                self.is_running = False
+            elif command.type == CommandType.SET_PATTERN:
+                self.pattern_engine.set_pattern(command.params["pattern"])
+            elif command.type == CommandType.UPDATE_PARAMS:
+                self.pattern_engine.update_parameters(command.params)
+            elif command.type == CommandType.TOGGLE_MODIFIER:
+                name = command.params["name"]
+                if name in self.pattern_engine.active_modifiers:
+                    self.pattern_engine.remove_modifier(name)
+                else:
+                    self.pattern_engine.add_modifier(
+                        name, command.params.get("params", {})
+                    )
+            elif command.type == CommandType.SET_BRIGHTNESS:
+                self.config.led.brightness = command.params["brightness"]
+            elif command.type == CommandType.ADD_AUDIO_BINDING:
+                if self.config.features.audio_enabled:
+                    self.audio_bindings.append(AudioBinding(**command.params))
+            elif command.type == CommandType.REMOVE_AUDIO_BINDING:
+                if self.config.features.audio_enabled:
+                    self.audio_bindings = [
+                        b
+                        for b in self.audio_bindings
+                        if b.modifier_name != command.params["modifier_name"]
+                    ]
+            elif command.type == CommandType.RESET_MODIFIERS:
+                self.pattern_engine.reset_modifiers()
+        except Exception as e:
+            logger.error(f"Command handling error: {e}")
 
     def set_pattern(self, pattern_name: str, params: Optional[Dict] = None) -> None:
         """Set the active pattern"""
@@ -204,6 +249,10 @@ class SystemController:
             Command(CommandType.REMOVE_AUDIO_BINDING, {"modifier_name": modifier_name})
         )
 
+    def reset_modifiers(self) -> None:
+        """Reset all modifiers to default state"""
+        self.command_queue.put(Command(CommandType.RESET_MODIFIERS, {}))
+
     def get_state(self) -> Dict[str, Any]:
         """Get current system state"""
         state = {
@@ -223,7 +272,7 @@ class SystemController:
             },
         }
 
-        if self.audio_enabled:
+        if self.config.features.audio_enabled:
             state["audio"] = {
                 "enabled": True,
                 "bindings": [

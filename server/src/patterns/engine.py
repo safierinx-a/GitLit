@@ -1,6 +1,7 @@
 import logging
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Type
+import time
 
 import numpy as np
 
@@ -371,3 +372,46 @@ class PatternEngine:
         if not hasattr(modifier_cls, "SUPPORTED_AUDIO_METRICS"):
             return None
         return modifier_cls.SUPPORTED_AUDIO_METRICS
+
+    def reset_modifiers(self) -> None:
+        """Reset all active modifiers to their default state"""
+        try:
+            if not self.current_pattern:
+                return
+
+            # Clear modifiers from current config
+            if self.current_config:
+                self.current_config.modifiers = None
+
+            # Clear active modifiers
+            self._modifiers.clear()
+
+            # Regenerate current frame
+            self.update(time.time() * 1000)
+
+            logger.info("All modifiers reset successfully")
+        except Exception as e:
+            logger.error(f"Error resetting modifiers: {e}")
+            raise
+
+    def update_modifier_parameter(
+        self, modifier_name: str, parameter: str, value: Any
+    ) -> None:
+        """Update a specific parameter of an active modifier"""
+        try:
+            if not self.current_config or not self.current_config.modifiers:
+                return
+
+            for modifier in self.current_config.modifiers:
+                if modifier["name"] == modifier_name:
+                    if "parameters" not in modifier:
+                        modifier["parameters"] = {}
+                    modifier["parameters"][parameter] = value
+                    break
+
+            logger.debug(
+                f"Updated modifier {modifier_name} parameter {parameter} = {value}"
+            )
+        except Exception as e:
+            logger.error(f"Error updating modifier parameter: {e}")
+            raise

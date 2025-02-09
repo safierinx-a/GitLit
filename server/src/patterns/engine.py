@@ -76,7 +76,7 @@ class PatternEngine:
         }
         logger.info(f"Registered {len(self._modifiers)} modifiers")
 
-    def update(self, time_ms: float) -> Optional[np.ndarray]:
+    async def update(self, time_ms: float) -> Optional[np.ndarray]:
         """Generate pattern frame and send via WebSocket"""
         if not self.current_pattern or not self.current_config:
             return None
@@ -96,7 +96,7 @@ class PatternEngine:
                         frame = modifier.apply(frame, params)
 
             # Send frame via WebSocket
-            ws_manager.broadcast(
+            await ws_manager.broadcast(
                 {
                     "type": "pattern",
                     "data": {"frame": frame.tolist(), "timestamp": time_ms},

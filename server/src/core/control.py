@@ -168,7 +168,12 @@ class SystemController:
             if command.type == CommandType.STOP:
                 self.is_running = False
             elif command.type == CommandType.SET_PATTERN:
-                self.pattern_engine.set_pattern(command.params["pattern"])
+                pattern_name = command.params["pattern"]
+                params = command.params.get("params", {})
+                pattern_config = PatternConfig(
+                    name=pattern_name, parameters=params, modifiers=[]
+                )
+                self.pattern_engine.set_pattern(pattern_config)
             elif command.type == CommandType.UPDATE_PARAMS:
                 self.pattern_engine.update_parameters(command.params)
             elif command.type == CommandType.TOGGLE_MODIFIER:

@@ -10,7 +10,7 @@ router = APIRouter(prefix="/control", tags=["control"])
 
 # Request/Response Models
 class PatternRequest(BaseModel):
-    name: str
+    pattern: str
     params: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -90,7 +90,7 @@ async def set_pattern(request: PatternRequest):
     """Set active pattern"""
     if not _controller:
         raise HTTPException(status_code=503, detail="System not initialized")
-    _controller.set_pattern(request.name, request.params)
+    _controller.set_pattern(request.pattern, request.params)
     return {"status": "success"}
 
 

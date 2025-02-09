@@ -1,8 +1,11 @@
 from typing import Any, Dict, List
 
 import numpy as np
+import logging
 
 from ...base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
+
+logger = logging.getLogger(__name__)
 
 
 class SolidPattern(BasePattern):
@@ -58,6 +61,7 @@ class SolidPattern(BasePattern):
         r = self.state.parameters.get("red", 0)
         g = self.state.parameters.get("green", 0)
         b = self.state.parameters.get("blue", 0)
+        logger.debug(f"Generating solid pattern with color: R={r}, G={g}, B={b}")
         self.state.cache_value("last_color", [r, g, b])
         self.frame_buffer[:] = np.array([r, g, b], dtype=np.uint8)
         return self.frame_buffer

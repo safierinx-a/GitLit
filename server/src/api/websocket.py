@@ -29,6 +29,7 @@ class ConnectionManager:
 
     async def broadcast(self, message: Dict[str, Any]):
         """Broadcast message to all connections"""
+        logger.debug(f"Broadcasting message: {message}")
         if not self.active_connections:
             return
 

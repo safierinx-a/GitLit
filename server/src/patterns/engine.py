@@ -78,7 +78,7 @@ class PatternEngine:
 
     def update(self, time_ms: float) -> Optional[np.ndarray]:
         """Generate pattern frame and send via WebSocket"""
-        if not self.current_pattern:
+        if not self.current_pattern or not self.current_config:
             return None
 
         try:

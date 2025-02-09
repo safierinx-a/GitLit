@@ -172,7 +172,7 @@ class SystemController:
                 pattern_name = command.params["pattern"]
                 params = command.params.get("params", {})
                 pattern_config = PatternConfig(
-                    name=pattern_name, parameters=params, modifiers=[]
+                    pattern_type=pattern_name, parameters=params, modifiers=[]
                 )
                 self.pattern_engine.set_pattern(pattern_config)
             elif command.type == CommandType.UPDATE_PARAMS:

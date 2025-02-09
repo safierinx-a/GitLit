@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 
 import websockets
 
-from ..led.controller import create_controller
+from controller.led.controller import create_controller
 
 logger = logging.getLogger(__name__)
 

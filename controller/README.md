@@ -20,10 +20,23 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+## Hardware Setup
+
+### Permissions Setup (Raspberry Pi)
+
+Before running the controller, you need to set up proper permissions for GPIO access:
+
+```bash
+# Run the permissions setup script (only needed once)
+sudo ./tools/setup_permissions.sh
+
+# Log out and log back in for changes to take effect
+```
+
 ## Usage
 
 ```bash
-# Start the controller
+# Start the controller (no sudo needed after permissions setup)
 python -m client.led_client --host SERVER_IP
 ```
 

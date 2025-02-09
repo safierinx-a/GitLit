@@ -11,6 +11,19 @@ from .effects import (
     StrobeModifier,
 )
 
+AVAILABLE_MODIFIERS = [
+    BrightnessModifier,
+    SpeedModifier,
+    DirectionModifier,
+    ColorTempModifier,
+    SaturationModifier,
+    MirrorModifier,
+    SegmentModifier,
+    StrobeModifier,
+    FadeModifier,
+    ColorCycleModifier,
+]
+
 __all__ = [
     "BrightnessModifier",
     "SpeedModifier",
@@ -22,4 +35,5 @@ __all__ = [
     "StrobeModifier",
     "FadeModifier",
     "ColorCycleModifier",
+    "AVAILABLE_MODIFIERS",
 ]

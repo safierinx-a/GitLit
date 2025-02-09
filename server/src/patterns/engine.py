@@ -109,7 +109,7 @@ class PatternEngine:
             logger.error(f"Pattern update error: {e}")
             return None
 
-    def cleanup(self) -> None:
+    async def cleanup(self) -> None:
         """Clean up resources"""
         try:
             # Clear current pattern
@@ -124,7 +124,7 @@ class PatternEngine:
             self._modifiers.clear()
 
             # Send clear command via WebSocket
-            ws_manager.broadcast({"type": "clear"})
+            await ws_manager.broadcast({"type": "clear"})
 
         except Exception as e:
             logger.error(f"Cleanup error: {e}")

@@ -216,10 +216,10 @@ class PatternEngine:
 
     def set_pattern(self, config: PatternConfig) -> None:
         """Set and validate pattern configuration"""
-        if config.name not in self._patterns:
-            raise ValidationError(f"Pattern {config.name} not found")
+        if config.pattern_type not in self._patterns:
+            raise ValidationError(f"Pattern {config.pattern_type} not found")
 
-        pattern_class = self._patterns[config.name]
+        pattern_class = self._patterns[config.pattern_type]
 
         # Validate pattern parameters
         validated_params = self.validate_parameters(pattern_class, config.parameters)
@@ -232,7 +232,9 @@ class PatternEngine:
         # Apply validated configuration
         self.current_pattern = pattern_class(self._num_pixels)
         self.current_config = PatternConfig(
-            name=config.name, parameters=validated_params, modifiers=config.modifiers
+            pattern_type=config.pattern_type,
+            parameters=validated_params,
+            modifiers=config.modifiers,
         )
         self.current_pattern.reset()
 

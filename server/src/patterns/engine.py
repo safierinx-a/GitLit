@@ -82,6 +82,10 @@ class PatternEngine:
             return None
 
         try:
+            logger.debug(
+                f"Generating pattern: {self.current_config.name} with parameters: {self.current_config.parameters}"
+            )
+
             # Generate base pattern
             frame = self.current_pattern.generate(
                 time_ms, self.current_config.parameters
@@ -90,6 +94,9 @@ class PatternEngine:
             # Apply modifiers if configured
             if self.current_config and self.current_config.modifiers:
                 for modifier_config in self.current_config.modifiers:
+                    logger.debug(
+                        f"Applying modifier: {modifier_config['name']} with parameters: {modifier_config.get('parameters', {})}"
+                    )
                     modifier = self._modifiers.get(modifier_config["name"])
                     if modifier and modifier_config.get("enabled", True):
                         params = modifier_config.get("parameters", {})

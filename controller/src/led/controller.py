@@ -76,6 +76,12 @@ class DirectLEDController(LEDController):
             logger.error(f"Failed to import LED libraries: {e}")
             raise
 
+        # State management first
+        self._state = LEDState(
+            pixels=np.zeros((num_pixels, 3), dtype=np.uint8), brightness=1.0, is_on=True
+        )
+        self._lock = threading.Lock()
+
         # Initialize LED strip
         try:
             self.pixels = neopixel.NeoPixel(
@@ -84,15 +90,13 @@ class DirectLEDController(LEDController):
                 auto_write=False,
                 pixel_order=neopixel.RGB,
             )
+            # Initialize with all pixels off
+            self.pixels.fill((0, 0, 0))
+            self.pixels.show()
         except Exception as e:
             logger.error(f"Failed to initialize LED strip: {e}")
             raise
 
-        # State management
-        self._state = LEDState(
-            pixels=np.zeros((num_pixels, 3), dtype=np.uint8), brightness=1.0, is_on=True
-        )
-        self._lock = threading.Lock()
         logger.info(f"Initialized LED strip with {num_pixels} pixels on pin {pin}")
 
     def set_pixels(self, pixels: np.ndarray) -> None:

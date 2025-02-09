@@ -43,7 +43,9 @@ class LEDClient:
             "freq": config.led_freq,
         }
         self.led_controller = create_controller(controller_config)
-        self.led_controller.set_brightness(config.brightness)
+        # Set initial brightness without updating pixels
+        if hasattr(self.led_controller._state, "brightness"):
+            self.led_controller._state.brightness = config.brightness
         logger.info(
             f"Initialized {config.controller_type} LED controller with {config.led_count} pixels"
         )

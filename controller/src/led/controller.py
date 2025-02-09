@@ -71,7 +71,7 @@ class DirectLEDController(LEDController):
     def __init__(self, num_pixels: int, pin: int = 18, freq: int = 800000):
         try:
             import board
-            import neopixel
+            from rpi_ws281x import PixelStrip, Color
         except ImportError as e:
             logger.error(f"Failed to import LED libraries: {e}")
             raise
@@ -82,16 +82,30 @@ class DirectLEDController(LEDController):
         )
         self._lock = threading.Lock()
 
+        # LED strip configuration
+        LED_COUNT = num_pixels  # Number of LED pixels
+        LED_PIN = pin  # GPIO pin
+        LED_FREQ_HZ = freq  # LED signal frequency in Hz
+        LED_DMA = 10  # DMA channel for generating signal
+        LED_BRIGHTNESS = 255  # Set to 0 for darkest and 255 for brightest
+        LED_INVERT = False  # True to invert the signal
+        LED_CHANNEL = 0  # PWM channel
+
         # Initialize LED strip
         try:
-            self.pixels = neopixel.NeoPixel(
-                pin=getattr(board, f"D{pin}"),
-                n=num_pixels,
-                auto_write=False,
-                pixel_order=neopixel.RGB,
+            self.pixels = PixelStrip(
+                LED_COUNT,
+                LED_PIN,
+                LED_FREQ_HZ,
+                LED_DMA,
+                LED_INVERT,
+                LED_BRIGHTNESS,
+                LED_CHANNEL,
             )
+            self.pixels.begin()
             # Initialize with all pixels off
-            self.pixels.fill((0, 0, 0))
+            for i in range(num_pixels):
+                self.pixels.setPixelColor(i, Color(0, 0, 0))
             self.pixels.show()
         except Exception as e:
             logger.error(f"Failed to initialize LED strip: {e}")
@@ -121,7 +135,9 @@ class DirectLEDController(LEDController):
                 pixels = (pixels * self._state.brightness).astype(np.uint8)
 
                 # Update hardware
-                self.pixels[:] = [tuple(p) for p in pixels]
+                for i in range(len(pixels)):
+                    r, g, b = pixels[i]
+                    self.pixels.setPixelColor(i, Color(r, g, b))
                 self.pixels.show()
 
                 # Update state
@@ -141,7 +157,9 @@ class DirectLEDController(LEDController):
             try:
                 brightness = np.clip(brightness, 0, 1)
                 self._state.brightness = brightness
-                self.set_pixels(self._state.pixels)
+                # Convert 0-1 to 0-255
+                self.pixels.setBrightness(int(brightness * 255))
+                self.pixels.show()
                 logger.debug(f"Set brightness to {brightness}")
             except Exception as e:
                 logger.error(f"Error setting brightness: {e}")
@@ -151,6 +169,7 @@ class DirectLEDController(LEDController):
         with self._lock:
             try:
                 self._state.is_on = True
+                self.pixels.setBrightness(int(self._state.brightness * 255))
                 self.set_pixels(self._state.pixels)
                 logger.info("LED strip turned on")
             except Exception as e:
@@ -161,7 +180,7 @@ class DirectLEDController(LEDController):
         with self._lock:
             try:
                 self._state.is_on = False
-                self.pixels.fill((0, 0, 0))
+                self.pixels.setBrightness(0)
                 self.pixels.show()
                 logger.info("LED strip turned off")
             except Exception as e:

@@ -1,5 +1,4 @@
 rpi_ws281x>=5.0.0
-adafruit-circuitpython-neopixel>=6.3.9
 numpy>=1.24.0
 sounddevice>=0.4.6
 websockets>=11.0.3 

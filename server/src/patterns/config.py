@@ -62,7 +62,7 @@ class PatternState:
         self.frame_count = 0
         self.last_frame_time = 0.0
         self.delta_time = 0.0
-        self.parameters.clear()
+        # Don't clear parameters here as they should persist
         self.cached_data.clear()
         self.is_transitioning = False
         self.frame_times.clear()

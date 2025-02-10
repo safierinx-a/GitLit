@@ -83,7 +83,7 @@ class BasePattern(ABC):
     def before_generate(self, time_ms: float, params: Dict[str, Any]) -> None:
         """Pre-generation hook for state updates"""
         self.state.update(time_ms)
-        self.state.parameters = params.copy()
+        self.state.parameters.update(params)
         self.timing.update(time_ms)
         speed = params.get("speed", 1.0)
         self.timing.time_scale = speed

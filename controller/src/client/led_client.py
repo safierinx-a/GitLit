@@ -141,7 +141,7 @@ async def main():
     parser = argparse.ArgumentParser(description="LED Control Client")
     parser.add_argument("--host", default="localhost", help="Server host")
     parser.add_argument("--port", type=int, default=8000, help="Server WebSocket port")
-    parser.add_argument("--led-count", type=int, default=300, help="Number of LEDs")
+    parser.add_argument("--led-count", type=int, default=600, help="Number of LEDs")
     parser.add_argument("--led-pin", type=int, default=18, help="LED GPIO pin")
     parser.add_argument("--brightness", type=float, default=1.0, help="LED brightness")
     parser.add_argument(

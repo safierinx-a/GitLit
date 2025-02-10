@@ -27,7 +27,7 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/control", tags=["control"])
+router = APIRouter(prefix="/api", tags=["control"])
 
 # Global registries
 pattern_registry = PatternRegistry()

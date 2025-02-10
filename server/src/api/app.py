@@ -13,7 +13,7 @@ from . import control, websocket
 logger = logging.getLogger(__name__)
 
 
-def create_app() -> FastAPI:
+def init_app() -> FastAPI:
     """Create and configure the FastAPI application"""
     app = FastAPI(
         title="GitLit Control API",
@@ -155,4 +155,7 @@ def create_app() -> FastAPI:
 
 
 # Create the application instance
-app = create_app()
+app = init_app()
+
+# This allows running with either app or init_app
+__all__ = ["app", "init_app"]

@@ -2,6 +2,9 @@ import asyncio
 import json
 import logging
 import signal
+import time
+import threading
+import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
 
@@ -31,9 +34,15 @@ class LEDClient:
 
     def __init__(self, config: ClientConfig):
         self.config = config
-        self.ws_client: Optional[websockets.WebSocketClientProtocol] = None
-        self.running = False
-        self.shutdown_event = asyncio.Event()
+        self.led_controller = create_controller(
+            {"type": "direct", "num_pixels": config.led_count, "pin": config.led_pin}
+        )
+        self.reconnect_delay = 1.0  # Start with 1 second delay
+        self.max_reconnect_delay = 30.0
+        self.running = True
+        self.last_heartbeat = time.time()
+        self.heartbeat_timeout = 15.0  # Seconds before considering connection dead
+        self._lock = threading.Lock()
 
         # Initialize LED controller
         controller_config = {
@@ -50,86 +59,79 @@ class LEDClient:
             f"Initialized {config.controller_type} LED controller with {config.led_count} pixels"
         )
 
-    async def start(self):
-        """Start WebSocket connection with reconnection handling"""
-        self.running = True
-
-        # Setup signal handlers
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            asyncio.get_event_loop().add_signal_handler(sig, self._signal_handler)
-
-        while self.running and not self.shutdown_event.is_set():
+    async def run(self):
+        """Main client loop with reconnection"""
+        while self.running:
             try:
-                await self._connect_and_process()
+                uri = f"ws://{self.config.server_host}:{self.config.ws_port}/ws"
+                async with websockets.connect(uri) as websocket:
+                    self.reconnect_delay = 1.0  # Reset delay on successful connection
+                    logger.info(f"Connected to {uri}")
+
+                    # Start heartbeat checker
+                    asyncio.create_task(self._check_heartbeat())
+
+                    while True:
+                        try:
+                            message = await websocket.recv()
+                            await self._handle_message(message)
+                        except websockets.ConnectionClosed:
+                            logger.warning("WebSocket connection closed")
+                            break
+
             except Exception as e:
                 logger.error(f"Connection error: {e}")
-                if self.running:
-                    logger.info(
-                        f"Reconnecting in {self.config.reconnect_delay} seconds..."
-                    )
-                    await asyncio.sleep(self.config.reconnect_delay)
+                await asyncio.sleep(self.reconnect_delay)
+                # Exponential backoff
+                self.reconnect_delay = min(
+                    self.reconnect_delay * 2, self.max_reconnect_delay
+                )
 
-    async def _connect_and_process(self):
-        """Handle WebSocket connection and message processing"""
-        ws_url = f"ws://{self.config.server_host}:{self.config.ws_port}/ws"
-
-        async with websockets.connect(ws_url) as websocket:
-            self.ws_client = websocket
-            logger.info(f"Connected to WebSocket at {ws_url}")
-
-            try:
-                while self.running and not self.shutdown_event.is_set():
-                    message = await websocket.recv()
-                    await self._handle_message(message)
-            except websockets.exceptions.ConnectionClosed:
-                logger.warning("WebSocket connection closed")
-            finally:
-                self.ws_client = None
-
-    def _signal_handler(self):
-        """Handle shutdown signals"""
-        logger.info("Received shutdown signal")
-        self.shutdown_event.set()
-        self.stop()
-
-    def stop(self):
-        """Stop client and clean up resources"""
-        self.running = False
-        if self.led_controller:
-            try:
-                self.led_controller.cleanup()
-            except Exception as e:
-                logger.error(f"Error during cleanup: {e}")
+    async def _check_heartbeat(self):
+        """Monitor connection health via heartbeat"""
+        while self.running:
+            if time.time() - self.last_heartbeat > self.heartbeat_timeout:
+                logger.error("Heartbeat timeout - connection may be dead")
+                # Connection will be re-established by main loop
+                break
+            await asyncio.sleep(1)
 
     async def _handle_message(self, message: str):
-        """Handle incoming WebSocket messages"""
+        """Handle incoming WebSocket messages with improved error handling"""
         try:
             data = json.loads(message)
             msg_type = data.get("type", "")
 
+            if msg_type == "heartbeat":
+                self.last_heartbeat = time.time()
+                return
+
             if msg_type == "pattern":
                 pattern_data = data.get("data", {})
                 if "frame" in pattern_data:
-                    self.led_controller.set_pixels(pattern_data["frame"])
-                else:
-                    logger.warning("Received pattern message without frame data")
+                    # Convert frame data to numpy array
+                    frame = np.array(pattern_data["frame"], dtype=np.uint8)
+                    self.led_controller.set_pixels(frame)
 
-            elif msg_type == "brightness":
-                brightness = float(data.get("data", {}).get("value", 1.0))
-                self.led_controller.set_brightness(brightness)
-                logger.debug(f"Updated brightness to {brightness}")
+                # Handle initial pattern config if provided
+                if "config" in pattern_data:
+                    logger.info(f"Received pattern config: {pattern_data['config']}")
 
-            elif msg_type == "clear":
-                self.led_controller.turn_off()
-                logger.debug("Cleared LED strip")
-
-            else:
-                logger.warning(f"Unknown message type: {msg_type}")
+            elif msg_type == "error":
+                logger.error(
+                    f"Received error from server: {data.get('data', {}).get('message', 'Unknown error')}"
+                )
 
         except json.JSONDecodeError:
-            logger.error("Received invalid JSON message")
+            logger.error("Invalid JSON message")
         except Exception as e:
             logger.error(f"Error handling message: {e}")
+
+    def cleanup(self):
+        """Clean up resources"""
+        self.running = False
+        if self.led_controller:
+            self.led_controller.cleanup()
 
 
 async def main():
@@ -168,11 +170,11 @@ async def main():
 
     client = LEDClient(config)
     try:
-        await client.start()
+        await client.run()
     except KeyboardInterrupt:
         logger.info("Shutting down...")
     finally:
-        client.stop()
+        client.cleanup()
 
 
 if __name__ == "__main__":

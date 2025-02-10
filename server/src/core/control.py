@@ -58,6 +58,14 @@ class SystemController:
         # Initialize components
         self.pattern_engine = PatternEngine(self.config.led.count)
 
+        # Set default pattern (solid color)
+        default_pattern = PatternConfig(
+            pattern_type="solid",
+            parameters={"color": [0, 0, 255]},  # Blue color
+            modifiers=[],
+        )
+        self.pattern_engine.set_pattern(default_pattern)
+
         # Control state
         self.is_running = False
         self.command_queue: queue.Queue[Command] = queue.Queue()
@@ -261,36 +269,21 @@ class SystemController:
 
     def get_state(self) -> Dict[str, Any]:
         """Get current system state"""
-        state = {
-            "pattern": self.pattern_engine.current_pattern,
-            "modifiers": list(self.pattern_engine.active_modifiers.keys()),
-            "performance": {
-                "fps": (
-                    1000 / (sum(self.frame_times) / len(self.frame_times))
-                    if self.frame_times
-                    else 0
-                ),
-                "frame_time": (
-                    sum(self.frame_times) / len(self.frame_times)
-                    if self.frame_times
-                    else 0
-                ),
-            },
-        }
-
-        if self.config.features.audio_enabled:
-            state["audio"] = {
-                "enabled": True,
-                "bindings": [
-                    {
-                        "modifier": b.modifier_name,
-                        "parameter": b.parameter,
-                        "metric": b.audio_metric,
-                        "scale": b.scale,
-                        "offset": b.offset,
-                    }
-                    for b in self.audio_bindings
-                ],
+        with self._lock:
+            return {
+                "pattern": self.pattern_engine.current_pattern.name
+                if self.pattern_engine.current_pattern
+                else "",
+                "modifiers": list(self.pattern_engine.active_modifiers.keys()),
+                "performance": {
+                    "fps": 1.0 / self.last_frame_time
+                    if self.last_frame_time > 0
+                    else 0.0,
+                    "frame_time": self.last_frame_time,
+                },
+                "audio": {
+                    "enabled": self.config.features.audio_enabled,
+                }
+                if self.audio_processor
+                else None,
             }
-
-        return state

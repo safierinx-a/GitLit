@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import threading
 import time
 import logging
+from rpi_ws281x import PixelStrip, Color
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ class DirectLEDController(LEDController):
         logger.info(f"Initialized LED strip with {num_pixels} pixels on pin {pin}")
 
     def set_pixels(self, pixels: np.ndarray) -> None:
-        """Set pixel colors with thread safety and error handling"""
+        """Set pixel colors with error recovery"""
         with self._lock:
             if not self._state.is_on:
                 return
@@ -134,22 +135,61 @@ class DirectLEDController(LEDController):
                 # Apply brightness
                 pixels = (pixels * self._state.brightness).astype(np.uint8)
 
-                # Update hardware
-                for i in range(len(pixels)):
-                    r, g, b = pixels[i]
-                    self.pixels.setPixelColor(i, Color(r, g, b))
-                self.pixels.show()
+                # Update hardware with retry
+                max_retries = 3
+                last_error = None
 
-                # Update state
-                self._state.pixels = pixels
-                self._state.last_update = time.time()
-                self._state.clear_errors()
+                for attempt in range(max_retries):
+                    try:
+                        for i in range(len(pixels)):
+                            r, g, b = pixels[i]
+                            self.pixels.setPixelColor(i, Color(r, g, b))
+                        self.pixels.show()
+
+                        # Success - update state and clear errors
+                        self._state.pixels = pixels
+                        self._state.last_update = time.time()
+                        self._state.clear_errors()
+                        return
+
+                    except Exception as e:
+                        last_error = e
+                        logger.warning(
+                            f"Retry {attempt + 1}/{max_retries} after error: {e}"
+                        )
+                        time.sleep(0.1)
+
+                # If we get here, all retries failed
+                raise last_error or Exception("Failed to update LED strip")
 
             except Exception as e:
                 logger.error(f"Error setting pixels: {e}")
                 if self._state.record_error():
                     logger.critical("Too many errors, turning off LED strip")
                     self.turn_off()
+                    # Notify any error handlers
+                    self._handle_critical_error(str(e))
+
+    def _handle_critical_error(self, error_msg: str) -> None:
+        """Handle critical errors that require immediate attention"""
+        try:
+            # Log to system log
+            logger.critical(f"Critical LED controller error: {error_msg}")
+
+            # Turn off LEDs for safety
+            self.turn_off()
+
+            # Reset state
+            self._state.is_on = False
+            self._state.pattern_active = False
+
+            # Could add additional error handling here:
+            # - Send error notification
+            # - Trigger system restart
+            # - etc.
+
+        except Exception as e:
+            logger.error(f"Error during critical error handling: {e}")
 
     def set_brightness(self, brightness: float) -> None:
         """Set global brightness with thread safety"""
@@ -176,15 +216,43 @@ class DirectLEDController(LEDController):
                 logger.error(f"Error turning on: {e}")
 
     def turn_off(self) -> None:
-        """Turn off LED strip with thread safety"""
+        """Turn off LED strip with safety checks"""
         with self._lock:
             try:
                 self._state.is_on = False
-                self.pixels.setBrightness(0)
-                self.pixels.show()
-                logger.info("LED strip turned off")
+                # Try multiple times to ensure LEDs are off
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        # Set all pixels to black
+                        for i in range(len(self._state.pixels)):
+                            self.pixels.setPixelColor(i, Color(0, 0, 0))
+                        self.pixels.setBrightness(0)
+                        self.pixels.show()
+                        logger.info("LED strip turned off successfully")
+                        return
+                    except Exception as e:
+                        if attempt == max_retries - 1:
+                            raise
+                        logger.warning(
+                            f"Retry {attempt + 1}/{max_retries} turning off LEDs: {e}"
+                        )
+                        time.sleep(0.1)
             except Exception as e:
-                logger.error(f"Error turning off: {e}")
+                logger.error(f"Failed to turn off LED strip: {e}")
+                # In case of critical failure, try hardware reset if available
+                self._emergency_shutdown()
+
+    def _emergency_shutdown(self) -> None:
+        """Emergency hardware shutdown in case of critical failure"""
+        try:
+            # Could add hardware-specific shutdown here:
+            # - Reset GPIO pins
+            # - Power cycle LED strip
+            # - etc.
+            logger.critical("Emergency shutdown initiated")
+        except Exception as e:
+            logger.critical(f"Emergency shutdown failed: {e}")
 
     def cleanup(self) -> None:
         """Clean up resources"""

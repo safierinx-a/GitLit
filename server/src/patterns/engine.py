@@ -2,6 +2,7 @@ import logging
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Type
 import time
+import asyncio
 
 import numpy as np
 
@@ -38,8 +39,14 @@ class PatternEngine:
         self.current_config: Optional[PatternConfig] = None
         self.state = PatternState()
 
+        # Initialize active modifiers
+        self.active_modifiers: Dict[str, BaseModifier] = {}
+
         self._register_patterns()
         self._register_modifiers()
+
+        # Start heartbeat
+        asyncio.create_task(self._send_heartbeat())
 
     def _register_patterns(self) -> None:
         """Register available patterns with automatic name generation"""
@@ -76,15 +83,58 @@ class PatternEngine:
         }
         logger.info(f"Registered {len(self._modifiers)} modifiers")
 
+    async def _send_heartbeat(self):
+        """Send periodic heartbeat to clients"""
+        while True:
+            try:
+                await ws_manager.broadcast({"type": "heartbeat"})
+                await asyncio.sleep(5)  # Every 5 seconds
+            except Exception as e:
+                logger.error(f"Error sending heartbeat: {e}")
+                await asyncio.sleep(1)
+
+    async def handle_client_connect(self, websocket: WebSocket) -> None:
+        """Send current pattern state when client connects"""
+        try:
+            if self.current_pattern and self.current_config:
+                # Generate current frame
+                current_time = time.time() * 1000
+                frame = self.current_pattern.generate(
+                    current_time, self.current_config.parameters
+                )
+
+                # Apply any active modifiers
+                if self.current_config.modifiers:
+                    for modifier_config in self.current_config.modifiers:
+                        if modifier_config.get("enabled", True):
+                            modifier = self._modifiers.get(modifier_config["name"])
+                            if modifier:
+                                frame = modifier.apply(
+                                    frame, modifier_config.get("parameters", {})
+                                )
+
+                # Send current state
+                await websocket.send_json(
+                    {
+                        "type": "pattern",
+                        "data": {
+                            "frame": frame.tolist(),
+                            "config": asdict(self.current_config),
+                            "timestamp": current_time,
+                        },
+                    }
+                )
+                logger.info("Sent current pattern state to new client")
+        except Exception as e:
+            logger.error(f"Error sending initial state to client: {e}")
+
     async def update(self, time_ms: float) -> Optional[np.ndarray]:
         """Generate pattern frame and send via WebSocket"""
         if not self.current_pattern or not self.current_config:
             return None
 
         try:
-            logger.debug(
-                f"Generating pattern: {self.current_config.name} with parameters: {self.current_config.parameters}"
-            )
+            logger.debug(f"Generating pattern: {self.current_config.name}")
 
             # Generate base pattern
             frame = self.current_pattern.generate(
@@ -92,15 +142,14 @@ class PatternEngine:
             )
 
             # Apply modifiers if configured
-            if self.current_config and self.current_config.modifiers:
+            if self.current_config.modifiers:
                 for modifier_config in self.current_config.modifiers:
-                    logger.debug(
-                        f"Applying modifier: {modifier_config['name']} with parameters: {modifier_config.get('parameters', {})}"
-                    )
-                    modifier = self._modifiers.get(modifier_config["name"])
-                    if modifier and modifier_config.get("enabled", True):
-                        params = modifier_config.get("parameters", {})
-                        frame = modifier.apply(frame, params)
+                    if modifier_config.get("enabled", True):
+                        modifier = self._modifiers.get(modifier_config["name"])
+                        if modifier:
+                            frame = modifier.apply(
+                                frame, modifier_config.get("parameters", {})
+                            )
 
             # Send frame via WebSocket
             await ws_manager.broadcast(
@@ -114,6 +163,13 @@ class PatternEngine:
 
         except Exception as e:
             logger.error(f"Pattern update error: {e}")
+            # Notify clients of error
+            await ws_manager.broadcast(
+                {
+                    "type": "error",
+                    "data": {"message": f"Pattern update failed: {str(e)}"},
+                }
+            )
             return None
 
     async def cleanup(self) -> None:

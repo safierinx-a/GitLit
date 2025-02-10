@@ -348,9 +348,12 @@ class PatternEngine:
     async def set_pattern(self, config: PatternConfig) -> None:
         """Set the current pattern with configuration"""
         try:
-            # Get pattern class
-            pattern_class = self._patterns.get(config.pattern_type)
-            if not pattern_class:
+            # Get pattern instance from registered instances
+            pattern = self._pattern_instances.get(config.pattern_type)
+            if not pattern:
+                logger.error(
+                    f"Pattern type {config.pattern_type} not found in registered instances"
+                )
                 raise ValidationError(f"Unknown pattern type: {config.pattern_type}")
 
             logger.info(
@@ -359,20 +362,17 @@ class PatternEngine:
 
             # Validate parameters
             validated_params = await self.validate_parameters(
-                pattern_class, config.parameters
+                pattern.__class__, config.parameters
             )
             logger.info(f"Validated parameters: {validated_params}")
-
-            # Create new pattern instance
-            pattern = pattern_class(self._num_pixels)
-            logger.info(
-                f"Created new pattern instance of type {pattern_class.__name__}"
-            )
 
             # Reset old pattern if exists
             if self.current_pattern:
                 self.current_pattern.reset()
                 logger.info("Reset previous pattern")
+
+            # Reset the pattern instance we're about to use
+            pattern.reset()
 
             # Update state
             self.current_pattern = pattern

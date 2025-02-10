@@ -297,7 +297,9 @@ class PatternEngine:
         for name, spec in param_specs.items():
             if name not in params:
                 if spec.default is not None:
-                    validated[name] = spec.default
+                    validated[name] = (
+                        int(spec.default) if spec.type == int else spec.default
+                    )
                 else:
                     raise ValidationError(f"Missing required parameter: {name}")
 
@@ -309,7 +311,11 @@ class PatternEngine:
 
             spec = param_specs[name]
 
-            # Type checking
+            # Convert numpy types to Python native types
+            if hasattr(value, "item"):
+                value = value.item()
+
+            # Type checking and conversion
             if not isinstance(value, spec.type):
                 try:
                     value = spec.type(value)
@@ -320,12 +326,14 @@ class PatternEngine:
 
             # Range validation
             if spec.min_value is not None and value < spec.min_value:
-                raise ValidationError(
-                    f"Parameter {name} value {value} is below minimum {spec.min_value}"
+                value = spec.min_value
+                logger.warning(
+                    f"Clamping parameter {name} to minimum value {spec.min_value}"
                 )
             if spec.max_value is not None and value > spec.max_value:
-                raise ValidationError(
-                    f"Parameter {name} value {value} is above maximum {spec.max_value}"
+                value = spec.max_value
+                logger.warning(
+                    f"Clamping parameter {name} to maximum value {spec.max_value}"
                 )
 
             validated[name] = value
@@ -385,7 +393,11 @@ class PatternEngine:
             # Store current pattern's parameters if it exists
             old_params = {}
             if self.current_pattern:
-                old_params = self.current_pattern.state.parameters.copy()
+                old_params = {
+                    k: v
+                    for k, v in self.current_pattern.state.parameters.items()
+                    if isinstance(v, (int, float, str, bool))
+                }
 
             # Update pattern and config
             self.current_pattern = pattern
@@ -395,13 +407,14 @@ class PatternEngine:
                 modifiers=config.modifiers,
             )
 
-            # Reset pattern while preserving any common parameters
+            # Reset pattern while preserving parameters
             pattern.reset()
 
+            # Initialize pattern state with validated parameters
+            pattern.state.parameters = validated_params.copy()
+
             # Merge old parameters with new ones, new ones take precedence
-            merged_params = old_params.copy()
-            merged_params.update(validated_params)
-            pattern.state.parameters = merged_params
+            pattern.state.parameters.update(validated_params)
 
             # Initialize pattern with a test frame
             try:
@@ -426,7 +439,7 @@ class PatternEngine:
                     f"\n  - Range: [{test_frame.min()}, {test_frame.max()}]"
                     f"\n  - Non-zero pixels: {nonzero_pixels}/{self._num_pixels}"
                     f"\n  - First non-zero pixel: {first_nonzero}"
-                    f"\n  - Parameters: {pattern.state.parameters}"
+                    f"\n  - Current parameters: {pattern.state.parameters}"
                 )
 
                 if nonzero_pixels == 0:

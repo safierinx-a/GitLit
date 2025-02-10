@@ -15,9 +15,15 @@ class SolidPattern(BasePattern):
     @property
     def parameters(cls) -> List[ParameterSpec]:
         return [
-            ColorSpec(name="red", description="Red component of solid color"),
-            ColorSpec(name="green", description="Green component of solid color"),
-            ColorSpec(name="blue", description="Blue component of solid color"),
+            ColorSpec(
+                name="red", description="Red component of solid color", default=255
+            ),
+            ColorSpec(
+                name="green", description="Green component of solid color", default=255
+            ),
+            ColorSpec(
+                name="blue", description="Blue component of solid color", default=255
+            ),
         ]
 
     @classmethod
@@ -60,22 +66,33 @@ class SolidPattern(BasePattern):
     def before_generate(self, time_ms: float, params: Dict[str, Any]) -> None:
         """Store parameters in state before generation"""
         super().before_generate(time_ms, params)
-        # Store color parameters in state
+
+        # Get current parameters with defaults
+        current_params = self.state.parameters
+
+        # Update color parameters with validation
         self.state.parameters.update(
             {
-                "red": np.clip(params.get("red", 0), 0, 255),
-                "green": np.clip(params.get("green", 0), 0, 255),
-                "blue": np.clip(params.get("blue", 0), 0, 255),
+                "red": np.clip(
+                    int(params.get("red", current_params.get("red", 255))), 0, 255
+                ),
+                "green": np.clip(
+                    int(params.get("green", current_params.get("green", 255))), 0, 255
+                ),
+                "blue": np.clip(
+                    int(params.get("blue", current_params.get("blue", 255))), 0, 255
+                ),
             }
         )
+
         logger.debug(f"Updated state parameters: {self.state.parameters}")
 
     def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
         """Generate a solid color frame"""
-        # Get color parameters from state
-        r = self.state.parameters.get("red", 0)
-        g = self.state.parameters.get("green", 0)
-        b = self.state.parameters.get("blue", 0)
+        # Get color parameters from state with defaults
+        r = self.state.parameters.get("red", 255)
+        g = self.state.parameters.get("green", 255)
+        b = self.state.parameters.get("blue", 255)
 
         logger.debug(f"Generating solid pattern with color: R={r}, G={g}, B={b}")
 

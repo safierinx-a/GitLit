@@ -99,9 +99,23 @@ class PatternRequest(BaseModel):
     parameters: Dict[str, Any]
 
     @validator("parameters")
-    def validate_parameters(cls, v, values):
+    def validate_parameters(cls, v):
         """Validate parameters against pattern specs"""
-        # Note: Pattern validation is done in the controller
+        # Ensure all color values are integers
+        for key in ["red", "green", "blue"]:
+            if key in v:
+                try:
+                    v[key] = int(v[key])
+                    if not 0 <= v[key] <= 255:
+                        raise ValueError(f"{key} must be between 0 and 255")
+                except (TypeError, ValueError):
+                    raise ValueError(f"Invalid {key} value: {v[key]}")
+
+        # Set defaults for missing color parameters
+        for key in ["red", "green", "blue"]:
+            if key not in v:
+                v[key] = 255  # Default to full intensity
+
         return v
 
 

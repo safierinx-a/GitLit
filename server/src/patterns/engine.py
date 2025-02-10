@@ -155,16 +155,7 @@ class PatternEngine:
                 f"with params: {self.current_config.parameters}"
             )
 
-            # Ensure pattern has current parameters
-            if self.current_pattern.state.parameters != self.current_config.parameters:
-                logger.warning(
-                    "Pattern state parameters don't match config, updating..."
-                )
-                self.current_pattern.state.parameters = (
-                    self.current_config.parameters.copy()
-                )
-
-            # Generate base pattern
+            # Generate base pattern with current config parameters
             frame = self.current_pattern.generate(
                 time_ms, self.current_config.parameters
             )
@@ -391,34 +382,37 @@ class PatternEngine:
             )
             logger.info(f"Validated parameters: {validated_params}")
 
-            # Update state and config first
+            # Store current pattern's parameters if it exists
+            old_params = {}
+            if self.current_pattern:
+                old_params = self.current_pattern.state.parameters.copy()
+
+            # Update pattern and config
             self.current_pattern = pattern
             self.current_config = PatternConfig(
                 pattern_type=config.pattern_type,
-                parameters=validated_params.copy(),  # Make a copy to prevent reference issues
+                parameters=validated_params.copy(),
                 modifiers=config.modifiers,
             )
 
-            # Reset and reinitialize the pattern
+            # Reset pattern while preserving any common parameters
             pattern.reset()
-            pattern.state.parameters = (
-                validated_params.copy()
-            )  # Set parameters after reset
+
+            # Merge old parameters with new ones, new ones take precedence
+            merged_params = old_params.copy()
+            merged_params.update(validated_params)
+            pattern.state.parameters = merged_params
 
             # Initialize pattern with a test frame
             try:
                 current_time = asyncio.get_event_loop().time() * 1000
-                pattern.before_generate(
-                    current_time, validated_params
-                )  # This will update state
-                test_frame = pattern._generate(
-                    current_time, validated_params
-                )  # Call _generate directly to bypass state updates
 
-                if test_frame is None or test_frame.shape != (self._num_pixels, 3):
-                    raise ValidationError(
-                        f"Pattern generated invalid frame shape: {test_frame.shape if test_frame is not None else None}"
-                    )
+                # Generate test frame using normal generation path
+                pattern.before_generate(current_time, validated_params)
+                test_frame = pattern.generate(current_time, validated_params)
+
+                if test_frame is None:
+                    raise ValidationError("Pattern generated None frame")
 
                 # Log detailed frame information
                 nonzero_pixels = np.count_nonzero(np.any(test_frame > 0, axis=1))
@@ -432,13 +426,12 @@ class PatternEngine:
                     f"\n  - Range: [{test_frame.min()}, {test_frame.max()}]"
                     f"\n  - Non-zero pixels: {nonzero_pixels}/{self._num_pixels}"
                     f"\n  - First non-zero pixel: {first_nonzero}"
-                    f"\n  - Parameters: {validated_params}"
-                    f"\n  - Pattern state: {pattern.state.parameters}"
+                    f"\n  - Parameters: {pattern.state.parameters}"
                 )
 
                 if nonzero_pixels == 0:
                     logger.warning(
-                        f"Test frame contains all black pixels with parameters: {validated_params}"
+                        f"Test frame contains all black pixels with parameters: {pattern.state.parameters}"
                     )
 
             except Exception as e:
@@ -446,7 +439,7 @@ class PatternEngine:
                 raise
 
             logger.info(
-                f"Successfully set pattern to {config.pattern_type} with params: {validated_params}"
+                f"Successfully set pattern to {config.pattern_type} with params: {pattern.state.parameters}"
             )
 
         except Exception as e:

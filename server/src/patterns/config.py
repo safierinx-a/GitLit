@@ -57,16 +57,24 @@ class PatternState:
             self.avg_frame_time = sum(self.frame_times) / len(self.frame_times)
 
     def reset(self):
-        """Reset state to initial values"""
+        """Reset state to initial values while preserving parameters"""
+        # Store current parameters
+        current_params = self.parameters.copy()
+
+        # Reset timing state
         self.time_offset = 0.0
         self.frame_count = 0
         self.last_frame_time = 0.0
         self.delta_time = 0.0
-        # Don't clear parameters here as they should persist
+
+        # Reset other state
         self.cached_data.clear()
         self.is_transitioning = False
         self.frame_times.clear()
         self.avg_frame_time = 0.0
+
+        # Restore parameters
+        self.parameters = current_params
 
     def cache_value(self, key: str, value: Any) -> None:
         """Cache a value for later use"""

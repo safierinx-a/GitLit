@@ -82,11 +82,20 @@ class BasePattern(ABC):
 
     def before_generate(self, time_ms: float, params: Dict[str, Any]) -> None:
         """Pre-generation hook for state updates"""
-        self.state.update(time_ms)
-        self.state.parameters.update(params)
+        # Update timing first
         self.timing.update(time_ms)
-        speed = params.get("speed", 1.0)
-        self.timing.time_scale = speed
+        self.state.update(time_ms)
+
+        # Store a copy of current parameters
+        current_params = self.state.parameters.copy()
+
+        # Update with new parameters, preserving any existing ones not in params
+        current_params.update(params)
+        self.state.parameters = current_params
+
+        # Update timing scale if speed parameter exists
+        if "speed" in params:
+            self.timing.time_scale = params["speed"]
 
     def after_generate(self, time_ms: float, params: Dict[str, Any]) -> None:
         """Post-generation hook for cleanup and metrics"""
@@ -107,6 +116,19 @@ class BasePattern(ABC):
             # Generate frame
             frame = self._generate(time_ms, params)
 
+            # Validate frame before post-processing
+            if frame is None:
+                raise PatternError("Pattern generated None frame")
+            if not isinstance(frame, np.ndarray):
+                raise PatternError(f"Invalid frame type: {type(frame)}")
+            if frame.shape != (self.led_count, 3):
+                raise PatternError(
+                    f"Invalid frame shape: {frame.shape}, expected ({self.led_count}, 3)"
+                )
+
+            # Ensure frame values are in valid range
+            frame = np.clip(frame, 0, 255).astype(np.uint8)
+
             # Post-generation cleanup
             self.after_generate(time_ms, params)
 
@@ -116,9 +138,18 @@ class BasePattern(ABC):
             raise PatternError(f"Pattern generation failed: {e}")
 
     def reset(self) -> None:
-        """Reset pattern state"""
+        """Reset pattern state while preserving parameters"""
+        # Store current parameters
+        current_params = self.state.parameters.copy()
+
+        # Reset frame buffer
         self.frame_buffer.fill(0)
+
+        # Reset state
         self.state.reset()
+
+        # Restore parameters
+        self.state.parameters = current_params
 
     @abstractmethod
     def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:

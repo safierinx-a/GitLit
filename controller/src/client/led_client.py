@@ -21,7 +21,7 @@ class ClientConfig:
 
     server_host: str = "localhost"
     ws_port: int = 8000
-    led_count: int = 300
+    led_count: int = 600
     led_pin: int = 18
     led_freq: int = 800000
     brightness: float = 1.0

@@ -1,82 +1,28 @@
 import asyncio
 import json
 import logging
-import signal
-import time
-import threading
 import numpy as np
-from dataclasses import dataclass
-from typing import Optional, Dict, Any
-import os
-import sys
-
 import websockets
-
-# Add parent directory to path for absolute imports
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
-from led.controller import create_controller
+from ..led.controller import LEDController
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ClientConfig:
-    """LED client configuration"""
-
-    server_host: str = "localhost"
-    ws_port: int = 8000
-    led_count: int = 600
-    led_pin: int = 18
-    led_freq: int = 800000
-    brightness: float = 1.0
-    reconnect_delay: float = 5.0
-    controller_type: str = "direct"  # "direct" or "mock"
-
-
 class LEDClient:
-    """WebSocket client for LED control"""
+    """Simple WebSocket client that receives frames and displays them"""
 
-    def __init__(self, config: ClientConfig):
-        self.config = config
-        self.reconnect_delay = 1.0  # Start with 1 second delay
-        self.max_reconnect_delay = 30.0
+    def __init__(self, host: str, port: int, num_pixels: int, pin: int = 18):
+        self.uri = f"ws://{host}:{port}/ws"
+        self.led_controller = LEDController(num_pixels=num_pixels, pin=pin)
         self.running = True
-        self.last_heartbeat = time.time()
-        self.heartbeat_timeout = 15.0  # Seconds before considering connection dead
-        self._lock = threading.Lock()
-
-        logger.debug(f"Initializing LED client with config: {config}")
-
-        # Initialize LED controller
-        controller_config = {
-            "type": config.controller_type,
-            "num_pixels": config.led_count,
-            "pin": config.led_pin,
-            "freq": config.led_freq,
-        }
-        logger.debug(f"Creating LED controller with config: {controller_config}")
-        self.led_controller = create_controller(controller_config)
-        # Set initial brightness without updating pixels
-        if hasattr(self.led_controller._state, "brightness"):
-            self.led_controller._state.brightness = config.brightness
-            logger.debug(f"Set initial brightness to {config.brightness}")
-        logger.info(
-            f"Initialized {config.controller_type} LED controller with {config.led_count} pixels"
-        )
+        logger.info(f"Initialized LED client connecting to {self.uri}")
 
     async def run(self):
-        """Main client loop with reconnection"""
+        """Main client loop"""
         while self.running:
             try:
-                uri = f"ws://{self.config.server_host}:{self.config.ws_port}/ws"
-                async with websockets.connect(uri) as websocket:
-                    self.reconnect_delay = 1.0  # Reset delay on successful connection
-                    logger.info(f"Connected to {uri}")
-
-                    # Start heartbeat checker
-                    asyncio.create_task(self._check_heartbeat())
+                async with websockets.connect(self.uri) as websocket:
+                    logger.info(f"Connected to {self.uri}")
 
                     while True:
                         try:
@@ -88,64 +34,31 @@ class LEDClient:
 
             except Exception as e:
                 logger.error(f"Connection error: {e}")
-                await asyncio.sleep(self.reconnect_delay)
-                # Exponential backoff
-                self.reconnect_delay = min(
-                    self.reconnect_delay * 2, self.max_reconnect_delay
-                )
-
-    async def _check_heartbeat(self):
-        """Monitor connection health via heartbeat"""
-        while self.running:
-            if time.time() - self.last_heartbeat > self.heartbeat_timeout:
-                logger.error("Heartbeat timeout - connection may be dead")
-                # Connection will be re-established by main loop
-                break
-            await asyncio.sleep(1)
+                await asyncio.sleep(1)  # Wait before retrying
 
     async def _handle_message(self, message: str):
-        """Handle incoming WebSocket messages with improved error handling"""
+        """Handle incoming WebSocket messages"""
         try:
             data = json.loads(message)
-            msg_type = data.get("type", "")
 
-            if msg_type == "heartbeat":
-                self.last_heartbeat = time.time()
-                return
-
-            if msg_type == "pattern":
+            if data.get("type") == "pattern":
                 pattern_data = data.get("data", {})
                 if "frame" in pattern_data:
-                    # Convert frame data to numpy array
                     frame = np.array(pattern_data["frame"], dtype=np.uint8)
-                    logger.debug(
-                        f"Received frame with shape {frame.shape}, range: [{frame.min()}, {frame.max()}]"
-                    )
-                    await self.led_controller.set_pixels(frame)
+                    self.led_controller.display_frame(frame)
 
-                # Handle initial pattern config if provided
-                if "config" in pattern_data:
-                    logger.info(f"Received pattern config: {pattern_data['config']}")
-
-            elif msg_type == "error":
-                logger.error(
-                    f"Received error from server: {data.get('data', {}).get('message', 'Unknown error')}"
-                )
-
-        except json.JSONDecodeError:
-            logger.error("Invalid JSON message")
         except Exception as e:
             logger.error(f"Error handling message: {e}")
 
     def cleanup(self):
         """Clean up resources"""
         self.running = False
-        if self.led_controller:
-            self.led_controller.cleanup()
+        self.led_controller.cleanup()
+        logger.info("LED client cleaned up")
 
 
-async def main():
-    """Main entry point with argument parsing"""
+def main():
+    """Main entry point"""
     import argparse
 
     parser = argparse.ArgumentParser(description="LED Control Client")
@@ -153,13 +66,6 @@ async def main():
     parser.add_argument("--port", type=int, default=8000, help="Server WebSocket port")
     parser.add_argument("--led-count", type=int, default=600, help="Number of LEDs")
     parser.add_argument("--led-pin", type=int, default=18, help="LED GPIO pin")
-    parser.add_argument("--brightness", type=float, default=1.0, help="LED brightness")
-    parser.add_argument(
-        "--controller",
-        choices=["direct", "mock"],
-        default="direct",
-        help="Controller type",
-    )
     parser.add_argument("--log-level", default="INFO", help="Logging level")
     args = parser.parse_args()
 
@@ -169,18 +75,16 @@ async def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    config = ClientConfig(
-        server_host=args.host,
-        ws_port=args.port,
-        led_count=args.led_count,
-        led_pin=args.led_pin,
-        brightness=args.brightness,
-        controller_type=args.controller,
+    # Create and run client
+    client = LEDClient(
+        host=args.host,
+        port=args.port,
+        num_pixels=args.led_count,
+        pin=args.led_pin,
     )
 
-    client = LEDClient(config)
     try:
-        await client.run()
+        asyncio.run(client.run())
     except KeyboardInterrupt:
         logger.info("Shutting down...")
     finally:
@@ -188,4 +92,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

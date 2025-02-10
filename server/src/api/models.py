@@ -83,12 +83,13 @@ class Parameter(BaseModel):
 
 
 # Pattern Models
-class PatternCategory(str):
+class PatternCategory(str, Enum):
     """Categories of patterns"""
 
     STATIC = "static"
     MOVING = "moving"
     PARTICLE = "particle"
+    OTHER = "other"
 
 
 class PatternRequest(BaseModel):

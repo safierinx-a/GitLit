@@ -80,16 +80,16 @@ def _register_modifiers():
         modifier_registry.register_modifier(modifier_def)
 
 
-def _determine_category(pattern_cls: type[BasePattern]) -> str:
+def _determine_category(pattern_cls: type[BasePattern]) -> PatternCategory:
     """Determine pattern category based on class location"""
     module_path = pattern_cls.__module__.split(".")
     if "static" in module_path:
-        return "static"
+        return PatternCategory.STATIC
     elif "moving" in module_path:
-        return "moving"
+        return PatternCategory.MOVING
     elif "particle" in module_path:
-        return "particle"
-    return "other"
+        return PatternCategory.PARTICLE
+    return PatternCategory.OTHER
 
 
 def _determine_modifier_category(modifier_name: str) -> ModifierCategory:
@@ -244,7 +244,7 @@ async def get_patterns():
 async def get_patterns_by_category(category: PatternCategory):
     """Get patterns in a specific category"""
     _check_controller()
-    return pattern_registry.get_patterns_by_category(category)
+    return [p for p in pattern_registry.get_all_patterns() if p.category == category]
 
 
 @router.get("/modifiers", response_model=List[ModifierDefinition])

@@ -5,6 +5,7 @@ import time
 import asyncio
 
 import numpy as np
+from fastapi import WebSocket
 
 from ..api.websocket import manager as ws_manager
 from ..core.config import PatternConfig

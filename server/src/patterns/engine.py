@@ -392,20 +392,11 @@ class PatternEngine:
             logger.info(f"Validated parameters: {validated_params}")
 
             # Reset old pattern if exists
-            if self.current_pattern:
+            if self.current_pattern and self.current_pattern != pattern:
                 self.current_pattern.reset()
                 logger.info("Reset previous pattern")
 
-            # Reset the pattern instance we're about to use
-            pattern.reset()
-
-            # Initialize pattern state with validated parameters
-            pattern.state.parameters = validated_params.copy()
-            logger.info(
-                f"Initialized pattern state with parameters: {pattern.state.parameters}"
-            )
-
-            # Update state
+            # Update state and config first
             self.current_pattern = pattern
             self.current_config = PatternConfig(
                 pattern_type=config.pattern_type,
@@ -413,12 +404,19 @@ class PatternEngine:
                 modifiers=config.modifiers,
             )
 
+            # Reset and reinitialize the pattern
+            pattern.reset()
+            pattern.state.parameters = (
+                validated_params.copy()
+            )  # Set parameters after reset
+            logger.info(
+                f"Pattern state initialized with parameters: {pattern.state.parameters}"
+            )
+
             # Test generate one frame to ensure pattern works
             try:
                 current_time = asyncio.get_event_loop().time() * 1000
-                pattern.before_generate(
-                    current_time, validated_params
-                )  # Ensure state is properly prepared
+                pattern.before_generate(current_time, validated_params)
                 test_frame = pattern.generate(current_time, validated_params)
 
                 if test_frame is None or test_frame.shape != (self._num_pixels, 3):
@@ -428,17 +426,24 @@ class PatternEngine:
 
                 # Log detailed frame information
                 nonzero_pixels = np.count_nonzero(np.any(test_frame > 0, axis=1))
+                first_nonzero = None
+                if nonzero_pixels > 0:
+                    first_nonzero = test_frame[np.any(test_frame > 0, axis=1)][0]
+
                 logger.info(
-                    f"Test frame generated successfully:"
+                    f"Test frame generated:"
                     f"\n  - Shape: {test_frame.shape}"
                     f"\n  - Range: [{test_frame.min()}, {test_frame.max()}]"
                     f"\n  - Non-zero pixels: {nonzero_pixels}/{self._num_pixels}"
-                    f"\n  - Parameters used: {validated_params}"
+                    f"\n  - First non-zero pixel: {first_nonzero}"
+                    f"\n  - Parameters: {validated_params}"
                     f"\n  - Pattern state: {pattern.state.parameters}"
                 )
 
                 if nonzero_pixels == 0:
-                    logger.warning("Test frame contains all black pixels!")
+                    logger.warning(
+                        f"Test frame contains all black pixels with parameters: {validated_params}"
+                    )
 
             except Exception as e:
                 logger.error(f"Failed to generate test frame: {e}")

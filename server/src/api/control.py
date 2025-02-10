@@ -23,6 +23,7 @@ from .models import (
     PatternCategory,
     ModifierCategory,
     ParameterType,
+    ParameterSpec,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,12 +56,24 @@ def _check_controller():
 
 def _register_patterns():
     """Register available patterns using their specs"""
-    for pattern_cls in _controller.pattern_engine.get_pattern_classes():
+    patterns = _controller.pattern_engine.get_available_patterns()
+    for pattern in patterns:
         pattern_def = PatternDefinition(
-            name=pattern_cls.name,
-            category=_determine_category(pattern_cls),
-            description=pattern_cls.description,
-            parameters=pattern_cls.parameters,
+            name=pattern["name"],
+            category=_determine_category_from_name(pattern["name"]),
+            description=pattern["description"],
+            parameters=[
+                ParameterSpec(
+                    name=name,
+                    type=param["type"],
+                    default=param.get("default"),
+                    min_value=param.get("min"),
+                    max_value=param.get("max"),
+                    description=param.get("description", ""),
+                    units=param.get("units", ""),
+                )
+                for name, param in pattern["parameters"].items()
+            ],
         )
         pattern_registry.register_pattern(pattern_def)
         logger.info(f"Registered pattern: {pattern_def.name}")
@@ -80,14 +93,17 @@ def _register_modifiers():
         modifier_registry.register_modifier(modifier_def)
 
 
-def _determine_category(pattern_cls: type[BasePattern]) -> PatternCategory:
-    """Determine pattern category based on class location"""
-    module_path = pattern_cls.__module__.split(".")
-    if "static" in module_path:
+def _determine_category_from_name(pattern_name: str) -> PatternCategory:
+    """Determine pattern category based on pattern name"""
+    static_patterns = {"solid", "gradient"}
+    moving_patterns = {"wave", "rainbow", "chase", "scan"}
+    particle_patterns = {"twinkle", "meteor", "breathe"}
+
+    if pattern_name in static_patterns:
         return PatternCategory.STATIC
-    elif "moving" in module_path:
+    elif pattern_name in moving_patterns:
         return PatternCategory.MOVING
-    elif "particle" in module_path:
+    elif pattern_name in particle_patterns:
         return PatternCategory.PARTICLE
     return PatternCategory.OTHER
 
@@ -143,21 +159,28 @@ async def get_system_state():
     _check_controller()
     try:
         state = _controller.get_state()
-        return SystemState(
-            active_pattern=state["pattern"],
-            pattern_parameters=state.get("pattern_parameters", {}),
-            active_modifiers=state["modifiers"],
-            modifier_parameters=state.get("modifier_parameters", {}),
-            audio_bindings=state.get("audio_bindings", []),
-            performance=PerformanceMetrics(
+
+        # Create performance metrics if available
+        performance = None
+        if "performance" in state:
+            performance = PerformanceMetrics(
                 fps=state["performance"]["fps"],
                 frame_time=state["performance"]["frame_time"],
                 avg_frame_time=state["performance"].get("avg_frame_time", 0.0),
                 memory_usage=state["performance"].get("memory_usage"),
-            ),
-            is_running=True,
+            )
+
+        return SystemState(
+            active_pattern=state.get("pattern"),
+            pattern_parameters=state.get("pattern_parameters", {}),
+            active_modifiers=state.get("modifiers", []),
+            modifier_parameters=state.get("modifier_parameters", {}),
+            audio_bindings=state.get("audio_bindings", []),
+            performance=performance,
+            is_running=state.get("is_running", True),
         )
     except Exception as e:
+        logger.error(f"Failed to get system state: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to get system state: {str(e)}"
         )

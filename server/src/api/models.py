@@ -183,7 +183,10 @@ class SystemState(BaseModel):
 
     active_pattern: Optional[str]
     pattern_parameters: Optional[Dict[str, Any]]
-    fps: float
+    active_modifiers: List[str] = []
+    modifier_parameters: Dict[str, Any] = {}
+    audio_bindings: List[AudioBinding] = []
+    performance: Optional[PerformanceMetrics] = None
     is_running: bool
 
 

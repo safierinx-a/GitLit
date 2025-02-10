@@ -21,6 +21,7 @@ from .models import (
     ModifierDefinition,
     PatternCategory,
     ModifierCategory,
+    ParameterType,
 )
 
 logger = logging.getLogger(__name__)
@@ -148,17 +149,17 @@ async def set_pattern(request: PatternRequest):
         # Convert parameters to engine format
         engine_params = {}
         for param_name, param in request.parameters.items():
-            if param.type == "color":
-                engine_params.update(
-                    {
-                        f"{param_name}_red": param.value["red"],
-                        f"{param_name}_green": param.value["green"],
-                        f"{param_name}_blue": param.value["blue"],
-                    }
-                )
+            if param.type == ParameterType.COLOR:
+                # For color parameters, set individual RGB components
+                engine_params["red"] = param.value["red"]
+                engine_params["green"] = param.value["green"]
+                engine_params["blue"] = param.value["blue"]
             else:
                 engine_params[param_name] = param.value
 
+        logger.debug(
+            f"Setting pattern {request.pattern_name} with params: {engine_params}"
+        )
         await _controller.set_pattern(request.pattern_name, engine_params)
         return BaseResponse(
             status="success",

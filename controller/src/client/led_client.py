@@ -69,10 +69,27 @@ class LEDClient:
                 pattern_data = data.get("data", {})
                 if "frame" in pattern_data:
                     frame = np.array(pattern_data["frame"], dtype=np.uint8)
-                    self.led_controller.display_frame(frame)
+                    logger.debug(f"Frame shape: {frame.shape}, dtype: {frame.dtype}")
+                    logger.debug(f"Frame range: min={frame.min()}, max={frame.max()}")
+                    logger.debug(f"Non-zero pixels: {np.count_nonzero(frame)}")
+
+                    # Log first few pixels if they're non-zero
+                    if frame.max() > 0:
+                        logger.debug(
+                            f"First 5 non-zero pixels: {frame[frame.any(axis=1)][:5]}"
+                        )
+
+                    try:
+                        self.led_controller.display_frame(frame)
+                        logger.debug("Frame sent to LED controller")
+                    except Exception as e:
+                        logger.error(f"Failed to display frame: {e}")
+
                     self.frames_received += 1
                     if self.frames_received % 100 == 0:  # Log every 100 frames
                         logger.info(f"Received {self.frames_received} frames")
+                else:
+                    logger.warning("Received pattern message without frame data")
 
             elif msg_type == "heartbeat":
                 # Respond to heartbeat
@@ -85,9 +102,12 @@ class LEDClient:
 
             else:
                 logger.debug(f"Received message of type: {msg_type}")
+                if msg_type not in ["pattern", "heartbeat", "error"]:
+                    logger.debug(f"Full message for unknown type: {data}")
 
         except json.JSONDecodeError:
             logger.error("Failed to decode JSON message")
+            logger.error(f"Raw message: {message[:200]}...")  # Log first 200 chars
         except Exception as e:
             logger.error(f"Error handling message: {e}")
             raise  # Re-raise to let run() handle it

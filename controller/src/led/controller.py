@@ -38,20 +38,37 @@ class LEDController:
         try:
             # Input validation
             if not isinstance(frame, np.ndarray):
+                logger.debug(f"Converting input type {type(frame)} to numpy array")
                 frame = np.array(frame)
+
+            # Log input frame details
+            logger.debug(f"Input frame shape: {frame.shape}, dtype: {frame.dtype}")
+            logger.debug(f"Frame range: min={frame.min()}, max={frame.max()}")
 
             # Ensure correct shape and type
             frame = np.clip(frame, 0, 255).astype(np.uint8)
+            logger.debug(
+                f"After clip and type conversion - shape: {frame.shape}, dtype: {frame.dtype}"
+            )
+
+            # Count non-black pixels
+            non_black = np.any(frame > 0, axis=1).sum()
+            logger.debug(f"Number of non-black pixels: {non_black}")
 
             # Update pixels
             for i in range(len(frame)):
                 r, g, b = frame[i]
+                if r > 0 or g > 0 or b > 0:  # Log non-black pixels
+                    logger.debug(f"Setting pixel {i} to R:{r} G:{g} B:{b}")
                 self.strip.setPixelColor(i, Color(g, r, b))  # Note: GRB order
 
+            # Show the frame
             self.strip.show()
+            logger.debug("Frame displayed on LED strip")
 
         except Exception as e:
             logger.error(f"Error displaying frame: {e}")
+            logger.exception("Full traceback:")
 
     def clear(self) -> None:
         """Turn off all LEDs"""

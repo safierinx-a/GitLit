@@ -15,7 +15,7 @@ router = APIRouter(tags=["websocket"])
 @router.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
-    controller: SystemController = Depends(lambda: router.dependencies[0].dependency()),
+    controller: SystemController = Depends(),
 ):
     """WebSocket endpoint for real-time updates"""
     client_id = id(websocket)

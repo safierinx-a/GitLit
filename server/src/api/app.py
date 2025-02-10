@@ -48,9 +48,13 @@ def init_app() -> FastAPI:
             )
         return app.state.system_controller
 
+    # Include routers with dependencies
+    control.router.dependencies = [Depends(get_controller)]
+    websocket.router.dependencies = [Depends(get_controller)]
+
     # Include routers
     app.include_router(control.router)
-    app.include_router(websocket.router, dependencies=[Depends(get_controller)])
+    app.include_router(websocket.router)
 
     @app.on_event("startup")
     async def startup_event():

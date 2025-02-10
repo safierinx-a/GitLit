@@ -141,7 +141,7 @@ class PatternEngine:
             return None
 
         try:
-            logger.debug(f"Generating pattern: {self.current_config.name}")
+            logger.debug(f"Generating pattern: {self.current_config.pattern_type}")
 
             # Generate base pattern
             frame = self.current_pattern.generate(

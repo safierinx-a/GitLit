@@ -96,14 +96,49 @@ class SystemConfig:
         if "performance" in updates:
             self.performance = PerformanceConfig(**updates["performance"])
 
-        # Re-validate after updates
-        self.__class__.validate(self)
+        # Validate the updated configuration
+        # Validate LED configuration
+        if self.led.count <= 0:
+            raise ValidationError("LED count must be greater than 0")
+        if not 0 <= self.led.brightness <= 1:
+            raise ValidationError("LED brightness must be between 0 and 1")
+        if self.led.refresh_rate <= 0:
+            raise ValidationError("LED refresh rate must be greater than 0")
+
+        # Validate performance configuration
+        if self.performance.target_fps <= 0:
+            raise ValidationError("Target FPS must be greater than 0")
+        if self.performance.max_frame_time <= 0:
+            raise ValidationError("Max frame time must be greater than 0")
+        if self.performance.buffer_size <= 0:
+            raise ValidationError("Buffer size must be greater than 0")
+
+        # Validate audio configuration if enabled
+        if self.features.audio_enabled:
+            if self.audio.sample_rate <= 0:
+                raise ValidationError("Audio sample rate must be greater than 0")
+            if self.audio.channels <= 0:
+                raise ValidationError("Audio channels must be greater than 0")
+            if self.audio.chunk_size <= 0:
+                raise ValidationError("Audio chunk size must be greater than 0")
+            if self.audio.format not in ["float32", "int16"]:
+                raise ValidationError("Audio format must be either float32 or int16")
 
 
 @dataclass
 class PatternConfig:
     """Configuration for a pattern including modifiers"""
 
-    name: str
+    pattern_type: str
     parameters: Dict[str, Any]
     modifiers: Optional[List[Dict[str, Any]]] = None
+
+    def __init__(
+        self,
+        pattern_type: str,
+        parameters: Dict[str, Any],
+        modifiers: Optional[List[Dict[str, Any]]] = None,
+    ):
+        self.pattern_type = pattern_type
+        self.parameters = parameters
+        self.modifiers = modifiers or []

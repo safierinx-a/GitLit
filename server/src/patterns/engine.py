@@ -391,16 +391,11 @@ class PatternEngine:
             )
             logger.info(f"Validated parameters: {validated_params}")
 
-            # Reset old pattern if exists
-            if self.current_pattern and self.current_pattern != pattern:
-                self.current_pattern.reset()
-                logger.info("Reset previous pattern")
-
             # Update state and config first
             self.current_pattern = pattern
             self.current_config = PatternConfig(
                 pattern_type=config.pattern_type,
-                parameters=validated_params,
+                parameters=validated_params.copy(),  # Make a copy to prevent reference issues
                 modifiers=config.modifiers,
             )
 
@@ -409,15 +404,16 @@ class PatternEngine:
             pattern.state.parameters = (
                 validated_params.copy()
             )  # Set parameters after reset
-            logger.info(
-                f"Pattern state initialized with parameters: {pattern.state.parameters}"
-            )
 
-            # Test generate one frame to ensure pattern works
+            # Initialize pattern with a test frame
             try:
                 current_time = asyncio.get_event_loop().time() * 1000
-                pattern.before_generate(current_time, validated_params)
-                test_frame = pattern.generate(current_time, validated_params)
+                pattern.before_generate(
+                    current_time, validated_params
+                )  # This will update state
+                test_frame = pattern._generate(
+                    current_time, validated_params
+                )  # Call _generate directly to bypass state updates
 
                 if test_frame is None or test_frame.shape != (self._num_pixels, 3):
                     raise ValidationError(

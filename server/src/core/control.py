@@ -77,11 +77,15 @@ class SystemController:
         """Initialize the controller and set default pattern"""
         # Set default pattern (solid color)
         default_pattern = PatternConfig(
-            pattern_type="solid",
+            pattern_type="gradient",
             parameters={
-                "red": 0,
-                "green": 0,
-                "blue": 255,  # Blue color
+                "color1_r": 0,
+                "color1_g": 0,
+                "color1_b": 255,
+                "color2_r": 0,
+                "color2_g": 0,
+                "color2_b": 255,
+                "position": 0.5,
             },
             modifiers=[],
         )

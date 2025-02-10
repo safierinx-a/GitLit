@@ -121,7 +121,7 @@ class LEDClient:
                     logger.debug(
                         f"Received frame with shape {frame.shape}, range: [{frame.min()}, {frame.max()}]"
                     )
-                    self.led_controller.set_pixels(frame)
+                    await self.led_controller.set_pixels(frame)
 
                 # Handle initial pattern config if provided
                 if "config" in pattern_data:

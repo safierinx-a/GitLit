@@ -3,7 +3,12 @@ import json
 import logging
 import numpy as np
 import websockets
-from ..led.controller import LEDController
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from led.controller import LEDController
 
 logger = logging.getLogger(__name__)
 

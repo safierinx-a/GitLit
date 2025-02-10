@@ -1,11 +1,12 @@
 from typing import Any, Dict, List, Optional, Union
 from enum import Enum
 from pydantic import BaseModel, Field, validator
+from ..patterns.base import ParameterSpec, ColorSpec, ModifiableAttribute
 
 
 # Base Models
 class BaseResponse(BaseModel):
-    """Base response model"""
+    """Base response model with status and message"""
 
     status: str
     message: str
@@ -82,35 +83,34 @@ class Parameter(BaseModel):
 
 
 # Pattern Models
-class PatternCategory(str, Enum):
+class PatternCategory(str):
     """Categories of patterns"""
 
     STATIC = "static"
     MOVING = "moving"
     PARTICLE = "particle"
-    CUSTOM = "custom"
-
-
-class PatternDefinition(BaseModel):
-    """Definition of a pattern"""
-
-    name: str
-    category: PatternCategory
-    description: str
-    parameters: Dict[str, ParameterMetadata]
-    supported_modifiers: List[str] = []
 
 
 class PatternRequest(BaseModel):
     """Request to set a pattern"""
 
     pattern_name: str
-    parameters: Dict[str, Parameter]
+    parameters: Dict[str, Any]
 
     @validator("parameters")
-    def validate_parameters(cls, v):
-        # Additional validation can be added here
+    def validate_parameters(cls, v, values):
+        """Validate parameters against pattern specs"""
+        # Note: Pattern validation is done in the controller
         return v
+
+
+class PatternDefinition(BaseModel):
+    """Pattern definition using parameter specs"""
+
+    name: str
+    category: str
+    description: str
+    parameters: List[ParameterSpec]
 
 
 # Modifier Models
@@ -178,35 +178,32 @@ class PerformanceMetrics(BaseModel):
 
 
 class SystemState(BaseModel):
-    """Complete system state"""
+    """Current system state"""
 
-    active_pattern: Optional[str] = None
-    pattern_parameters: Dict[str, Any] = {}
-    active_modifiers: List[str] = []
-    modifier_parameters: Dict[str, Dict[str, Any]] = {}
-    audio_bindings: List[AudioBinding] = []
-    performance: PerformanceMetrics
-    is_running: bool = True
+    active_pattern: Optional[str]
+    pattern_parameters: Optional[Dict[str, Any]]
+    fps: float
+    is_running: bool
 
 
 # Registry Models
-class PatternRegistry(BaseModel):
+class PatternRegistry:
     """Registry of available patterns"""
 
-    patterns: Dict[str, PatternDefinition] = {}
-    categories: List[PatternCategory] = []
+    def __init__(self):
+        self._patterns: Dict[str, PatternDefinition] = {}
 
-    def register_pattern(self, pattern: PatternDefinition) -> None:
-        """Register a new pattern"""
-        self.patterns[pattern.name] = pattern
-        if pattern.category not in self.categories:
-            self.categories.append(pattern.category)
+    def register_pattern(self, pattern: PatternDefinition):
+        """Register a pattern definition"""
+        self._patterns[pattern.name] = pattern
 
-    def get_patterns_by_category(
-        self, category: PatternCategory
-    ) -> List[PatternDefinition]:
-        """Get all patterns in a category"""
-        return [p for p in self.patterns.values() if p.category == category]
+    def get_pattern(self, name: str) -> Optional[PatternDefinition]:
+        """Get pattern by name"""
+        return self._patterns.get(name)
+
+    def get_all_patterns(self) -> List[PatternDefinition]:
+        """Get all registered patterns"""
+        return list(self._patterns.values())
 
 
 class ModifierRegistry(BaseModel):

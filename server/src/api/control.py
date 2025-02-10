@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, validator
 
 from ..core.control import SystemController
 from ..core.exceptions import ValidationError
+from ..patterns.base import BasePattern
 from .models import (
     PatternRequest,
     ModifierRequest,
@@ -32,7 +33,7 @@ pattern_registry = PatternRegistry()
 modifier_registry = ModifierRegistry()
 
 # Global controller instance (will be set during app startup)
-_controller: SystemController = None
+_controller: Optional[SystemController] = None
 
 
 def init_controller(controller: SystemController):
@@ -53,17 +54,16 @@ def _check_controller():
 
 
 def _register_patterns():
-    """Register available patterns from the pattern engine"""
-    patterns = _controller.pattern_engine.get_available_patterns()
-    for pattern in patterns:
+    """Register available patterns using their specs"""
+    for pattern_cls in _controller.pattern_engine.get_pattern_classes():
         pattern_def = PatternDefinition(
-            name=pattern["name"],
-            category=_determine_pattern_category(pattern["name"]),
-            description=pattern["description"],
-            parameters=pattern["parameters"],
-            supported_modifiers=pattern["supported_modifiers"],
+            name=pattern_cls.name,
+            category=_determine_category(pattern_cls),
+            description=pattern_cls.description,
+            parameters=pattern_cls.parameters,
         )
         pattern_registry.register_pattern(pattern_def)
+        logger.info(f"Registered pattern: {pattern_def.name}")
 
 
 def _register_modifiers():
@@ -80,19 +80,16 @@ def _register_modifiers():
         modifier_registry.register_modifier(modifier_def)
 
 
-def _determine_pattern_category(pattern_name: str) -> PatternCategory:
-    """Determine pattern category based on name and characteristics"""
-    static_patterns = {"solid", "gradient"}
-    moving_patterns = {"wave", "rainbow", "chase", "scan"}
-    particle_patterns = {"twinkle", "meteor", "breathe"}
-
-    if pattern_name in static_patterns:
-        return PatternCategory.STATIC
-    elif pattern_name in moving_patterns:
-        return PatternCategory.MOVING
-    elif pattern_name in particle_patterns:
-        return PatternCategory.PARTICLE
-    return PatternCategory.CUSTOM
+def _determine_category(pattern_cls: type[BasePattern]) -> str:
+    """Determine pattern category based on class location"""
+    module_path = pattern_cls.__module__.split(".")
+    if "static" in module_path:
+        return "static"
+    elif "moving" in module_path:
+        return "moving"
+    elif "particle" in module_path:
+        return "particle"
+    return "other"
 
 
 def _determine_modifier_category(modifier_name: str) -> ModifierCategory:
@@ -108,6 +105,35 @@ def _determine_modifier_category(modifier_name: str) -> ModifierCategory:
     elif modifier_name in composite_modifiers:
         return ModifierCategory.COMPOSITE
     return ModifierCategory.CUSTOM
+
+
+def _validate_parameters(
+    pattern_def: PatternDefinition, params: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Validate parameters against pattern specs"""
+    validated = {}
+    for spec in pattern_def.parameters:
+        value = params.get(spec.name, spec.default)
+        if value is None and spec.default is None:
+            raise ValidationError(f"Missing required parameter: {spec.name}")
+
+        # Type validation
+        try:
+            value = spec.type(value)
+        except (ValueError, TypeError):
+            raise ValidationError(
+                f"Invalid type for {spec.name}: expected {spec.type.__name__}"
+            )
+
+        # Range validation
+        if spec.min_value is not None and value < spec.min_value:
+            raise ValidationError(f"{spec.name} must be >= {spec.min_value}")
+        if spec.max_value is not None and value > spec.max_value:
+            raise ValidationError(f"{spec.name} must be <= {spec.max_value}")
+
+        validated[spec.name] = value
+
+    return validated
 
 
 # Endpoints
@@ -139,40 +165,35 @@ async def get_system_state():
 
 @router.post("/pattern", response_model=BaseResponse)
 async def set_pattern(request: PatternRequest):
-    """Set active pattern"""
-    _check_controller()
+    """Set active pattern using pattern specs for validation"""
+    if not _controller:
+        raise HTTPException(status_code=503, detail="System not initialized")
+
     try:
-        # Validate pattern exists
-        if request.pattern_name not in pattern_registry.patterns:
-            raise ValidationError(f"Pattern '{request.pattern_name}' not found")
+        # Get pattern definition
+        pattern_def = pattern_registry.get_pattern(request.pattern_name)
+        if not pattern_def:
+            raise ValidationError(f"Unknown pattern: {request.pattern_name}")
 
-        # Convert parameters to engine format by flattening them
-        engine_params = {}
-        for param_name, param in request.parameters.items():
-            if param.type == ParameterType.COLOR:
-                # For color parameters, set individual RGB components
-                engine_params.update(
-                    {
-                        "red": param.value["red"],
-                        "green": param.value["green"],
-                        "blue": param.value["blue"],
-                    }
-                )
-            else:
-                engine_params[param_name] = param.value
+        # Validate parameters against specs
+        validated_params = _validate_parameters(pattern_def, request.parameters)
 
-        logger.debug(
-            f"Setting pattern {request.pattern_name} with params: {engine_params}"
+        # Set pattern
+        await _controller.set_pattern(request.pattern_name, validated_params)
+        logger.info(
+            f"Set pattern {request.pattern_name} with params: {validated_params}"
         )
-        await _controller.set_pattern(request.pattern_name, engine_params)
+
         return BaseResponse(
             status="success",
             message=f"Pattern '{request.pattern_name}' set successfully",
         )
+
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to set pattern: {str(e)}")
+        logger.error(f"Failed to set pattern: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/modifier", response_model=BaseResponse)
@@ -212,10 +233,11 @@ async def toggle_modifier(request: ModifierRequest):
 
 
 @router.get("/patterns", response_model=List[PatternDefinition])
-async def get_available_patterns():
-    """Get all available patterns"""
-    _check_controller()
-    return list(pattern_registry.patterns.values())
+async def get_patterns():
+    """Get all available patterns with their specs"""
+    if not _controller:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    return pattern_registry.get_all_patterns()
 
 
 @router.get("/patterns/{category}", response_model=List[PatternDefinition])

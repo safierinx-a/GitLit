@@ -8,7 +8,7 @@ import numpy as np
 
 from ..patterns.base import BasePattern
 from ..patterns.engine import PatternEngine
-from ..patterns.config import PatternConfig
+from ..patterns.config import PatternConfig, PatternState
 from .config import SystemConfig
 
 logger = logging.getLogger(__name__)

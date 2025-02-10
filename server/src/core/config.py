@@ -123,22 +123,3 @@ class SystemConfig:
                 raise ValidationError("Audio chunk size must be greater than 0")
             if self.audio.format not in ["float32", "int16"]:
                 raise ValidationError("Audio format must be either float32 or int16")
-
-
-@dataclass
-class PatternConfig:
-    """Configuration for a pattern including modifiers"""
-
-    pattern_type: str
-    parameters: Dict[str, Any]
-    modifiers: Optional[List[Dict[str, Any]]] = None
-
-    def __init__(
-        self,
-        pattern_type: str,
-        parameters: Dict[str, Any],
-        modifiers: Optional[List[Dict[str, Any]]] = None,
-    ):
-        self.pattern_type = pattern_type
-        self.parameters = parameters
-        self.modifiers = modifiers or []

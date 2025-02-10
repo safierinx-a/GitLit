@@ -22,10 +22,6 @@ class PatternConfig:
         self.parameters = parameters
         self.modifiers = modifiers or []
 
-    name: str
-    parameters: Dict[str, Any]
-    modifiers: Optional[List[Dict[str, Any]]] = None
-
 
 @dataclass
 class PatternState:

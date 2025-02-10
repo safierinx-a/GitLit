@@ -158,7 +158,7 @@ async def get_system_state():
     """Get current system state"""
     _check_controller()
     try:
-        state = _controller.get_state()
+        state = await _controller.get_state()
 
         # Create performance metrics if available
         performance = None

@@ -6,6 +6,7 @@ import threading
 import time
 import logging
 from rpi_ws281x import PixelStrip, Color, ws
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -33,30 +34,30 @@ class LEDState:
 
 
 class LEDController(ABC):
-    """Abstract LED controller interface"""
+    """Abstract base class for LED controllers"""
 
     @abstractmethod
-    def set_pixels(self, pixels: np.ndarray) -> None:
-        """Set pixel colors (RGB values 0-255)"""
+    async def set_pixels(self, pixels: np.ndarray) -> None:
+        """Set pixel colors"""
         pass
 
     @abstractmethod
-    def set_brightness(self, brightness: float) -> None:
-        """Set global brightness (0-1)"""
+    async def set_brightness(self, brightness: float) -> None:
+        """Set global brightness"""
         pass
 
     @abstractmethod
-    def turn_on(self) -> None:
+    async def turn_on(self) -> None:
         """Turn on LED strip"""
         pass
 
     @abstractmethod
-    def turn_off(self) -> None:
+    async def turn_off(self) -> None:
         """Turn off LED strip"""
         pass
 
     @abstractmethod
-    def cleanup(self) -> None:
+    async def cleanup(self) -> None:
         """Clean up resources"""
         pass
 
@@ -69,7 +70,7 @@ class LEDController(ABC):
 class DirectLEDController(LEDController):
     """Direct LED control for Raspberry Pi"""
 
-    def __init__(self, num_pixels: int, pin: int = 18, freq: int = 800000):
+    async def __init__(self, num_pixels: int, pin: int = 18, freq: int = 800000):
         try:
             import board
             from rpi_ws281x import PixelStrip, Color, ws
@@ -79,12 +80,18 @@ class DirectLEDController(LEDController):
             logger.error(f"Failed to import LED libraries: {e}")
             raise
 
-        # State management first
+        # Initialize state
         self._state = LEDState(
-            pixels=np.zeros((num_pixels, 3), dtype=np.uint8), brightness=1.0, is_on=True
+            pixels=np.zeros((num_pixels, 3), dtype=np.uint8),
+            brightness=1.0,
+            is_on=True,
         )
-        self._lock = threading.Lock()
-        logger.debug(f"Initialized LED state with {num_pixels} pixels")
+        self._lock = asyncio.Lock()  # Use asyncio lock instead of threading
+
+        # Store configuration
+        self.num_pixels = num_pixels
+        self.pin = pin
+        self.freq = freq
 
         # LED strip configuration
         LED_COUNT = num_pixels  # Number of LED pixels
@@ -122,7 +129,7 @@ class DirectLEDController(LEDController):
             logger.debug("Setting test pattern...")
             self.pixels.setPixelColor(0, Color(255, 0, 0))  # Red
             self.pixels.show()
-            time.sleep(0.5)  # Wait to see the test LED
+            await asyncio.sleep(0.5)  # Use asyncio.sleep instead of time.sleep
 
             # Then clear all
             for i in range(num_pixels):
@@ -135,9 +142,9 @@ class DirectLEDController(LEDController):
 
         logger.info(f"Initialized LED strip with {num_pixels} pixels on pin {pin}")
 
-    def set_pixels(self, pixels: np.ndarray) -> None:
+    async def set_pixels(self, pixels: np.ndarray) -> None:
         """Set pixel colors with error recovery"""
-        with self._lock:
+        async with self._lock:
             if not self._state.is_on:
                 logger.debug("LED strip is off, ignoring set_pixels")
                 return
@@ -198,7 +205,7 @@ class DirectLEDController(LEDController):
                         logger.warning(
                             f"Retry {attempt + 1}/{max_retries} after error: {e}"
                         )
-                        time.sleep(0.1)
+                        await asyncio.sleep(0.1)  # Use asyncio.sleep for retries
 
                 # If we get here, all retries failed
                 raise last_error or Exception("Failed to update LED strip")
@@ -207,18 +214,18 @@ class DirectLEDController(LEDController):
                 logger.error(f"Error setting pixels: {e}")
                 if self._state.record_error():
                     logger.critical("Too many errors, turning off LED strip")
-                    self.turn_off()
+                    await self.turn_off()  # Use await here
                     # Notify any error handlers
-                    self._handle_critical_error(str(e))
+                    await self._handle_critical_error(str(e))  # And here
 
-    def _handle_critical_error(self, error_msg: str) -> None:
+    async def _handle_critical_error(self, error_msg: str) -> None:
         """Handle critical errors that require immediate attention"""
         try:
             # Log to system log
             logger.critical(f"Critical LED controller error: {error_msg}")
 
             # Turn off LEDs for safety
-            self.turn_off()
+            await self.turn_off()  # Use await here
 
             # Reset state
             self._state.is_on = False
@@ -232,9 +239,9 @@ class DirectLEDController(LEDController):
         except Exception as e:
             logger.error(f"Error during critical error handling: {e}")
 
-    def set_brightness(self, brightness: float) -> None:
+    async def set_brightness(self, brightness: float) -> None:
         """Set global brightness with thread safety"""
-        with self._lock:
+        async with self._lock:
             try:
                 brightness = np.clip(brightness, 0, 1)
                 self._state.brightness = brightness
@@ -245,20 +252,20 @@ class DirectLEDController(LEDController):
             except Exception as e:
                 logger.error(f"Error setting brightness: {e}")
 
-    def turn_on(self) -> None:
+    async def turn_on(self) -> None:
         """Turn on LED strip with thread safety"""
-        with self._lock:
+        async with self._lock:
             try:
                 self._state.is_on = True
                 self.pixels.setBrightness(int(self._state.brightness * 255))
-                self.set_pixels(self._state.pixels)
+                await self.set_pixels(self._state.pixels)
                 logger.info("LED strip turned on")
             except Exception as e:
                 logger.error(f"Error turning on: {e}")
 
-    def turn_off(self) -> None:
+    async def turn_off(self) -> None:
         """Turn off LED strip with safety checks"""
-        with self._lock:
+        async with self._lock:
             try:
                 self._state.is_on = False
                 # Try multiple times to ensure LEDs are off
@@ -278,13 +285,13 @@ class DirectLEDController(LEDController):
                         logger.warning(
                             f"Retry {attempt + 1}/{max_retries} turning off LEDs: {e}"
                         )
-                        time.sleep(0.1)
+                        await asyncio.sleep(0.1)
             except Exception as e:
                 logger.error(f"Failed to turn off LED strip: {e}")
                 # In case of critical failure, try hardware reset if available
-                self._emergency_shutdown()
+                await self._emergency_shutdown()
 
-    def _emergency_shutdown(self) -> None:
+    async def _emergency_shutdown(self) -> None:
         """Emergency hardware shutdown in case of critical failure"""
         try:
             # Could add hardware-specific shutdown here:
@@ -295,24 +302,23 @@ class DirectLEDController(LEDController):
         except Exception as e:
             logger.critical(f"Emergency shutdown failed: {e}")
 
-    def cleanup(self) -> None:
+    async def cleanup(self) -> None:
         """Clean up resources"""
         try:
-            self.turn_off()
+            await self.turn_off()
             logger.info("LED strip cleaned up")
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
 
     def get_state(self) -> Dict[str, Any]:
         """Get current controller state"""
-        with self._lock:
-            return {
-                "is_on": self._state.is_on,
-                "brightness": self._state.brightness,
-                "pixel_count": len(self._state.pixels),
-                "last_update": self._state.last_update,
-                "error_count": self._state.error_count,
-            }
+        return {
+            "is_on": self._state.is_on,
+            "brightness": self._state.brightness,
+            "pixel_count": len(self._state.pixels),
+            "last_update": self._state.last_update,
+            "error_count": self._state.error_count,
+        }
 
 
 class RemoteLEDController(LEDController):
@@ -328,23 +334,23 @@ class RemoteLEDController(LEDController):
         )
         # Network setup would go here
 
-    def set_pixels(self, pixels: np.ndarray) -> None:
+    async def set_pixels(self, pixels: np.ndarray) -> None:
         """Send pixel data over network (to be implemented)"""
         pass
 
-    def set_brightness(self, brightness: float) -> None:
+    async def set_brightness(self, brightness: float) -> None:
         """Send brightness command over network (to be implemented)"""
         pass
 
-    def turn_on(self) -> None:
+    async def turn_on(self) -> None:
         """Send turn on command over network (to be implemented)"""
         pass
 
-    def turn_off(self) -> None:
+    async def turn_off(self) -> None:
         """Send turn off command over network (to be implemented)"""
         pass
 
-    def cleanup(self) -> None:
+    async def cleanup(self) -> None:
         """Clean up network resources (to be implemented)"""
         pass
 

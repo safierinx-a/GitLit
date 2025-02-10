@@ -266,7 +266,7 @@ class PatternEngine:
         """Ensure cleanup on deletion"""
         self.cleanup_sync()  # Use sync version for __del__
 
-    def validate_parameters(
+    async def validate_parameters(
         self, pattern_class: Type[BasePattern], params: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Validate and normalize pattern parameters"""
@@ -341,7 +341,7 @@ class PatternEngine:
                 hook.parameter_specs, modifier_config["parameters"]
             )
 
-    def set_pattern(self, config: PatternConfig) -> None:
+    async def set_pattern(self, config: PatternConfig) -> None:
         """Set the current pattern with configuration"""
         try:
             # Get pattern class
@@ -349,13 +349,26 @@ class PatternEngine:
             if not pattern_class:
                 raise ValidationError(f"Unknown pattern type: {config.pattern_type}")
 
+            logger.info(
+                f"Setting pattern {config.pattern_type} with raw params: {config.parameters}"
+            )
+
             # Validate parameters
-            validated_params = self.validate_parameters(
+            validated_params = await self.validate_parameters(
                 pattern_class, config.parameters
             )
+            logger.info(f"Validated parameters: {validated_params}")
 
             # Create new pattern instance
             pattern = pattern_class(self._num_pixels)
+            logger.info(
+                f"Created new pattern instance of type {pattern_class.__name__}"
+            )
+
+            # Reset old pattern if exists
+            if self.current_pattern:
+                self.current_pattern.reset()
+                logger.info("Reset previous pattern")
 
             # Update state
             self.current_pattern = pattern
@@ -365,8 +378,24 @@ class PatternEngine:
                 modifiers=config.modifiers,
             )
 
+            # Test generate one frame to ensure pattern works
+            try:
+                test_frame = pattern.generate(
+                    asyncio.get_event_loop().time() * 1000, validated_params
+                )
+                if test_frame is None or test_frame.shape != (self._num_pixels, 3):
+                    raise ValidationError(
+                        f"Pattern generated invalid frame shape: {test_frame.shape if test_frame is not None else None}"
+                    )
+                logger.info(
+                    f"Test frame generated successfully with shape {test_frame.shape}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to generate test frame: {e}")
+                raise
+
             logger.info(
-                f"Set pattern to {config.pattern_type} with params: {validated_params}"
+                f"Successfully set pattern to {config.pattern_type} with params: {validated_params}"
             )
 
         except Exception as e:

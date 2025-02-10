@@ -215,7 +215,7 @@ class SystemController:
                     parameters=params,
                     modifiers=[],
                 )
-                self.pattern_engine.set_pattern(pattern_config)
+                await self.pattern_engine.set_pattern(pattern_config)
                 logger.debug("Pattern set successfully")
             elif command.type == CommandType.UPDATE_PARAMS:
                 await self.pattern_engine.update_parameters(command.params)
@@ -243,6 +243,16 @@ class SystemController:
                 await self.pattern_engine.reset_modifiers()
         except Exception as e:
             logger.error(f"Command handling error: {e}")
+            # Notify any error handlers
+            try:
+                await ws_manager.broadcast(
+                    {
+                        "type": "error",
+                        "data": {"message": f"Command failed: {str(e)}"},
+                    }
+                )
+            except Exception as broadcast_error:
+                logger.error(f"Failed to broadcast error: {broadcast_error}")
 
     async def set_pattern(
         self, pattern_name: str, params: Optional[Dict] = None
@@ -301,9 +311,9 @@ class SystemController:
             Command(CommandType.REMOVE_AUDIO_BINDING, {"modifier_name": modifier_name})
         )
 
-    def get_state(self) -> Dict[str, Any]:
+    async def get_state(self) -> Dict[str, Any]:
         """Get current system state"""
-        with self._lock:
+        async with self._lock:
             return {
                 "pattern": self.pattern_engine.current_pattern.name
                 if self.pattern_engine.current_pattern

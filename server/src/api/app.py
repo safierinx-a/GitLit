@@ -48,6 +48,9 @@ def init_app() -> FastAPI:
             )
         return app.state.system_controller
 
+    # Make the dependency available at module level
+    app.dependency_overrides[SystemController] = get_controller
+
     # Include routers with dependencies
     control.router.dependencies = [Depends(get_controller)]
     websocket.router.dependencies = [Depends(get_controller)]

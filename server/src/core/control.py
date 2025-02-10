@@ -59,7 +59,11 @@ class SystemController:
         # Set default pattern (solid color)
         default_pattern = PatternConfig(
             pattern_type="solid",
-            parameters={"color": [0, 0, 255]},  # Blue color
+            parameters={
+                "red": 0,
+                "green": 0,
+                "blue": 255,  # Blue color
+            },
             modifiers=[],
         )
         self.pattern_engine.set_pattern(default_pattern)

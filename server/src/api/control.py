@@ -146,14 +146,18 @@ async def set_pattern(request: PatternRequest):
         if request.pattern_name not in pattern_registry.patterns:
             raise ValidationError(f"Pattern '{request.pattern_name}' not found")
 
-        # Convert parameters to engine format
+        # Convert parameters to engine format by flattening them
         engine_params = {}
         for param_name, param in request.parameters.items():
             if param.type == ParameterType.COLOR:
                 # For color parameters, set individual RGB components
-                engine_params["red"] = param.value["red"]
-                engine_params["green"] = param.value["green"]
-                engine_params["blue"] = param.value["blue"]
+                engine_params.update(
+                    {
+                        "red": param.value["red"],
+                        "green": param.value["green"],
+                        "blue": param.value["blue"],
+                    }
+                )
             else:
                 engine_params[param_name] = param.value
 

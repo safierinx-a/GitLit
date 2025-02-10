@@ -51,27 +51,34 @@ class PatternEngine:
 
     def _register_patterns(self) -> None:
         """Register available patterns with automatic name generation"""
-        pattern_classes = [
-            # Static Patterns
-            SolidPattern,
-            GradientPattern,
-            # Moving Patterns
-            WavePattern,
-            RainbowPattern,
-            ChasePattern,
-            ScanPattern,
-            # Particle Patterns
-            TwinklePattern,
-            MeteorPattern,
-            BreathePattern,
-        ]
+        # Define pattern categories and their patterns
+        pattern_categories = {
+            "static": [
+                SolidPattern,
+                GradientPattern,
+            ],
+            "moving": [
+                WavePattern,
+                RainbowPattern,
+                ChasePattern,
+                ScanPattern,
+            ],
+            "particle": [
+                TwinklePattern,
+                MeteorPattern,
+                BreathePattern,
+            ],
+        }
 
-        for pattern_class in pattern_classes:
-            name = pattern_class.__name__.lower().replace("pattern", "")
-            pattern = pattern_class(self._num_pixels)
-            self._patterns[name] = pattern_class
-            self._pattern_instances[name] = pattern
-            logger.info(f"Registered pattern: {name}")
+        # Register patterns in order by category
+        for category, patterns in sorted(pattern_categories.items()):
+            logger.info(f"Registering {category} patterns...")
+            for pattern_class in sorted(patterns, key=lambda x: x.__name__):
+                name = pattern_class.__name__.lower().replace("pattern", "")
+                pattern = pattern_class(self._num_pixels)
+                self._patterns[name] = pattern_class
+                self._pattern_instances[name] = pattern
+                logger.info(f"Registered {category} pattern: {name}")
 
     def _register_modifiers(self) -> None:
         """Register available modifiers"""
@@ -148,6 +155,15 @@ class PatternEngine:
                 f"with params: {self.current_config.parameters}"
             )
 
+            # Ensure pattern has current parameters
+            if self.current_pattern.state.parameters != self.current_config.parameters:
+                logger.warning(
+                    "Pattern state parameters don't match config, updating..."
+                )
+                self.current_pattern.state.parameters = (
+                    self.current_config.parameters.copy()
+                )
+
             # Generate base pattern
             frame = self.current_pattern.generate(
                 time_ms, self.current_config.parameters
@@ -183,11 +199,20 @@ class PatternEngine:
 
             # Log frame statistics
             nonzero_pixels = np.count_nonzero(np.any(frame > 0, axis=1))
-            logger.debug(
-                f"Frame stats - Shape: {frame.shape}, Range: [{frame.min()}, {frame.max()}], "
-                f"Active pixels: {nonzero_pixels}/{self._num_pixels}, "
-                f"First non-zero pixel: {frame[frame.any(axis=1)][0] if nonzero_pixels > 0 else 'None'}"
-            )
+            if nonzero_pixels == 0:
+                logger.warning("Generated frame contains all black pixels!")
+                logger.debug(
+                    f"Current pattern state: {self.current_pattern.state.parameters}"
+                )
+                logger.debug(
+                    f"Current config parameters: {self.current_config.parameters}"
+                )
+            else:
+                logger.debug(
+                    f"Frame stats - Shape: {frame.shape}, Range: [{frame.min()}, {frame.max()}], "
+                    f"Active pixels: {nonzero_pixels}/{self._num_pixels}, "
+                    f"First non-zero pixel: {frame[frame.any(axis=1)][0] if nonzero_pixels > 0 else 'None'}"
+                )
 
             # Send frame via WebSocket
             try:
@@ -374,6 +399,12 @@ class PatternEngine:
             # Reset the pattern instance we're about to use
             pattern.reset()
 
+            # Initialize pattern state with validated parameters
+            pattern.state.parameters = validated_params.copy()
+            logger.info(
+                f"Initialized pattern state with parameters: {pattern.state.parameters}"
+            )
+
             # Update state
             self.current_pattern = pattern
             self.current_config = PatternConfig(
@@ -384,18 +415,31 @@ class PatternEngine:
 
             # Test generate one frame to ensure pattern works
             try:
-                test_frame = pattern.generate(
-                    asyncio.get_event_loop().time() * 1000, validated_params
-                )
+                current_time = asyncio.get_event_loop().time() * 1000
+                pattern.before_generate(
+                    current_time, validated_params
+                )  # Ensure state is properly prepared
+                test_frame = pattern.generate(current_time, validated_params)
+
                 if test_frame is None or test_frame.shape != (self._num_pixels, 3):
                     raise ValidationError(
                         f"Pattern generated invalid frame shape: {test_frame.shape if test_frame is not None else None}"
                     )
+
+                # Log detailed frame information
+                nonzero_pixels = np.count_nonzero(np.any(test_frame > 0, axis=1))
                 logger.info(
-                    f"Test frame generated successfully with shape {test_frame.shape}, "
-                    f"range: [{test_frame.min()}, {test_frame.max()}], "
-                    f"non-zero pixels: {np.count_nonzero(np.any(test_frame > 0, axis=1))}"
+                    f"Test frame generated successfully:"
+                    f"\n  - Shape: {test_frame.shape}"
+                    f"\n  - Range: [{test_frame.min()}, {test_frame.max()}]"
+                    f"\n  - Non-zero pixels: {nonzero_pixels}/{self._num_pixels}"
+                    f"\n  - Parameters used: {validated_params}"
+                    f"\n  - Pattern state: {pattern.state.parameters}"
                 )
+
+                if nonzero_pixels == 0:
+                    logger.warning("Test frame contains all black pixels!")
+
             except Exception as e:
                 logger.error(f"Failed to generate test frame: {e}")
                 raise
@@ -457,17 +501,51 @@ class PatternEngine:
         # TODO: Implement dynamic modifier loading
         return {}
 
+    def get_patterns_by_category(self) -> Dict[str, List[str]]:
+        """Get available patterns organized by category"""
+        categories = {"static": [], "moving": [], "particle": []}
+
+        # Categorize patterns
+        for name, pattern_cls in self._patterns.items():
+            if issubclass(pattern_cls, (SolidPattern, GradientPattern)):
+                categories["static"].append(name)
+            elif issubclass(
+                pattern_cls, (WavePattern, RainbowPattern, ChasePattern, ScanPattern)
+            ):
+                categories["moving"].append(name)
+            elif issubclass(
+                pattern_cls, (TwinklePattern, MeteorPattern, BreathePattern)
+            ):
+                categories["particle"].append(name)
+
+        # Sort patterns within each category
+        for category in categories:
+            categories[category].sort()
+
+        return categories
+
     def get_available_patterns(self) -> List[Dict[str, Any]]:
         """Get list of available patterns with metadata"""
-        return [
-            {
-                "name": name,
-                "description": pattern_cls.__doc__ or "",
-                "parameters": self._get_parameters_metadata(pattern_cls),
-                "supported_modifiers": self._get_supported_modifiers(pattern_cls),
-            }
-            for name, pattern_cls in self._patterns.items()
-        ]
+        patterns_by_category = self.get_patterns_by_category()
+        patterns = []
+
+        # Add patterns in category order
+        for category in sorted(patterns_by_category.keys()):
+            for name in sorted(patterns_by_category[category]):
+                pattern_cls = self._patterns[name]
+                patterns.append(
+                    {
+                        "name": name,
+                        "category": category,
+                        "description": pattern_cls.__doc__ or "",
+                        "parameters": self._get_parameters_metadata(pattern_cls),
+                        "supported_modifiers": self._get_supported_modifiers(
+                            pattern_cls
+                        ),
+                    }
+                )
+
+        return patterns
 
     def get_pattern_metadata(self, pattern_name: str) -> Dict[str, Any]:
         """Get metadata for a specific pattern"""

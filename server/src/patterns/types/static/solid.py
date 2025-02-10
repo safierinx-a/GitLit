@@ -57,12 +57,25 @@ class SolidPattern(BasePattern):
             )
         ]
 
+    def before_generate(self, time_ms: float, params: Dict[str, Any]) -> None:
+        """Store parameters in state before generation"""
+        super().before_generate(time_ms, params)
+        # Store color parameters in state
+        self.state.parameters.update(
+            {
+                "red": np.clip(params.get("red", 0), 0, 255),
+                "green": np.clip(params.get("green", 0), 0, 255),
+                "blue": np.clip(params.get("blue", 0), 0, 255),
+            }
+        )
+        logger.debug(f"Updated state parameters: {self.state.parameters}")
+
     def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
         """Generate a solid color frame"""
-        # Get color parameters with validation
-        r = np.clip(params.get("red", 0), 0, 255)
-        g = np.clip(params.get("green", 0), 0, 255)
-        b = np.clip(params.get("blue", 0), 0, 255)
+        # Get color parameters from state
+        r = self.state.parameters.get("red", 0)
+        g = self.state.parameters.get("green", 0)
+        b = self.state.parameters.get("blue", 0)
 
         logger.debug(f"Generating solid pattern with color: R={r}, G={g}, B={b}")
 

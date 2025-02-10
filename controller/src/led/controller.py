@@ -93,9 +93,7 @@ class DirectLEDController(LEDController):
         LED_DMA = 10  # DMA channel for generating signal
         LED_BRIGHTNESS = 255  # Set to 0 for darkest and 255 for brightest
         LED_INVERT = False  # True to invert the signal
-        LED_CHANNEL = (
-            1 if LED_PIN in [13, 18, 19] else 0
-        )  # Use PWM channel 1 for GPIO 18
+        LED_CHANNEL = 0  # PWM channel 0 for GPIO 18
         LED_STRIP = ws.WS2811_STRIP_GRB  # Strip type and color ordering
 
         logger.debug(
@@ -105,6 +103,7 @@ class DirectLEDController(LEDController):
 
         # Initialize LED strip
         try:
+            logger.debug("Creating PixelStrip instance...")
             self.pixels = PixelStrip(
                 LED_COUNT,
                 LED_PIN,
@@ -115,10 +114,12 @@ class DirectLEDController(LEDController):
                 LED_CHANNEL,
                 LED_STRIP,
             )
+            logger.debug("Calling begin()...")
             self.pixels.begin()
             logger.debug("LED strip initialized successfully")
 
             # Test pattern - set first LED to red to verify communication
+            logger.debug("Setting test pattern...")
             self.pixels.setPixelColor(0, Color(255, 0, 0))  # Red
             self.pixels.show()
             time.sleep(0.5)  # Wait to see the test LED
@@ -370,19 +371,23 @@ def create_controller(config: Dict[str, Any]) -> LEDController:
                 is_raspberry_pi = any(
                     "Raspberry Pi" in line for line in f if line.startswith("Model")
                 )
+            logger.debug("Detected Raspberry Pi hardware")
         except:
             is_raspberry_pi = False
+            logger.warning("Not running on Raspberry Pi hardware")
 
         if is_raspberry_pi:
+            pin = config.get("pin", 18)  # Default to GPIO 18
+            logger.debug(f"Creating DirectLEDController with pin {pin}")
             return DirectLEDController(
                 num_pixels=num_pixels,
-                pin=config.get("pin", 18),
+                pin=pin,
                 freq=config.get("freq", 800000),
             )
         else:
             from .mock import MockLEDController
 
-            logger.info("Not running on Raspberry Pi, using mock LED controller")
+            logger.info("Using mock LED controller")
             return MockLEDController(num_pixels=num_pixels)
 
     elif controller_type == "remote":

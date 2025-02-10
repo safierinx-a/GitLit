@@ -67,3 +67,7 @@ class PatternState:
         self.is_transitioning = False
         self.frame_times.clear()
         self.avg_frame_time = 0.0
+
+    def cache_value(self, key: str, value: Any) -> None:
+        """Cache a value for later use"""
+        self.cached_data[key] = value

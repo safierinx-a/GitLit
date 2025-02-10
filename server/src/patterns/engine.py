@@ -226,18 +226,17 @@ class PatternEngine:
                 )
             except Exception as e:
                 logger.error(f"Failed to send frame: {e}")
-                return None
 
             return frame
 
         except Exception as e:
             logger.error(f"Pattern update error: {e}")
-            # Notify clients of error
             try:
+                error_msg = str(e)
                 await ws_manager.broadcast(
                     {
                         "type": "error",
-                        "data": {"message": f"Pattern update failed: {str(e)}"},
+                        "data": {"message": f"Pattern update failed: {error_msg}"},
                     }
                 )
             except Exception as broadcast_error:

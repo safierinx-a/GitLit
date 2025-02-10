@@ -26,11 +26,11 @@ class ParameterSpec:
 class ColorSpec(ParameterSpec):
     """Specification for color parameters"""
 
-    def __init__(self, name: str, description: str = ""):
+    def __init__(self, name: str, description: str = "", default: int = 0):
         super().__init__(
             name=name,
             type=int,
-            default=0,
+            default=default,
             min_value=0,
             max_value=255,
             description=description,

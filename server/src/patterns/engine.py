@@ -506,3 +506,115 @@ class PatternEngine:
         except Exception as e:
             logger.error(f"Error updating modifier parameter: {e}")
             raise
+
+    async def add_modifier(self, name: str, params: Dict[str, Any]) -> None:
+        """Add a modifier to the current pattern"""
+        if not self.current_pattern:
+            raise ValidationError("No active pattern")
+
+        if name not in self._modifiers:
+            raise ValidationError(f"Unknown modifier: {name}")
+
+        # Create modifier instance
+        modifier_class = self._modifiers[name]
+        modifier = modifier_class()
+
+        # Validate parameters
+        validated_params = self.validate_parameters(modifier_class, params)
+
+        # Add to current config
+        if not self.current_config.modifiers:
+            self.current_config.modifiers = []
+
+        self.current_config.modifiers.append(
+            {"name": name, "parameters": validated_params, "enabled": True}
+        )
+
+        # Add to active modifiers
+        self.active_modifiers[name] = modifier
+        logger.info(f"Added modifier {name} with params: {validated_params}")
+
+    async def remove_modifier(self, name: str) -> None:
+        """Remove a modifier from the current pattern"""
+        if not self.current_pattern:
+            raise ValidationError("No active pattern")
+
+        if name not in self.active_modifiers:
+            raise ValidationError(f"Modifier not active: {name}")
+
+        # Remove from current config
+        if self.current_config.modifiers:
+            self.current_config.modifiers = [
+                m for m in self.current_config.modifiers if m["name"] != name
+            ]
+
+        # Remove from active modifiers
+        del self.active_modifiers[name]
+        logger.info(f"Removed modifier {name}")
+
+    async def update_modifier(self, name: str, params: Dict[str, Any]) -> None:
+        """Update modifier parameters"""
+        if not self.current_pattern:
+            raise ValidationError("No active pattern")
+
+        if name not in self.active_modifiers:
+            raise ValidationError(f"Modifier not active: {name}")
+
+        # Validate parameters
+        modifier_class = self._modifiers[name]
+        validated_params = self.validate_parameters(modifier_class, params)
+
+        # Update in current config
+        if self.current_config.modifiers:
+            for modifier in self.current_config.modifiers:
+                if modifier["name"] == name:
+                    modifier["parameters"].update(validated_params)
+                    break
+
+        logger.info(f"Updated modifier {name} with params: {validated_params}")
+
+    def validate_modifier_parameters(
+        self, modifier_class: Type[BaseModifier], params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Validate and normalize modifier parameters"""
+        validated = {}
+        param_specs = {p.name: p for p in modifier_class.parameters}
+
+        # Check for required parameters
+        for name, spec in param_specs.items():
+            if name not in params:
+                if spec.default is not None:
+                    validated[name] = spec.default
+                else:
+                    raise ValidationError(f"Missing required parameter: {name}")
+
+        # Validate provided parameters
+        for name, value in params.items():
+            if name not in param_specs:
+                logger.warning(f"Unknown modifier parameter: {name}")
+                continue
+
+            spec = param_specs[name]
+
+            # Type checking
+            if not isinstance(value, spec.type):
+                try:
+                    value = spec.type(value)
+                except (ValueError, TypeError):
+                    raise ValidationError(
+                        f"Parameter {name} must be of type {spec.type.__name__}"
+                    )
+
+            # Range checking
+            if spec.min_value is not None and value < spec.min_value:
+                raise ValidationError(
+                    f"Parameter {name} below minimum value {spec.min_value}"
+                )
+            if spec.max_value is not None and value > spec.max_value:
+                raise ValidationError(
+                    f"Parameter {name} above maximum value {spec.max_value}"
+                )
+
+            validated[name] = value
+
+        return validated

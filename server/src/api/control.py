@@ -1,185 +1,34 @@
 from typing import Any, Dict, List, Optional, Union
 from enum import Enum
+import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field, validator
 
 from ..core.control import SystemController
 from ..core.exceptions import ValidationError
+from .models import (
+    PatternRequest,
+    ModifierRequest,
+    AudioBinding,
+    SystemState,
+    PatternRegistry,
+    ModifierRegistry,
+    PerformanceMetrics,
+    BaseResponse,
+    ErrorResponse,
+    PatternDefinition,
+    ModifierDefinition,
+    PatternCategory,
+    ModifierCategory,
+)
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/control", tags=["control"])
 
-
-class ColorValue(BaseModel):
-    """RGB color value"""
-
-    red: int = Field(0, ge=0, le=255)
-    green: int = Field(0, ge=0, le=255)
-    blue: int = Field(0, ge=0, le=255)
-
-
-class Position(BaseModel):
-    """Position value"""
-
-    value: float = Field(..., ge=0.0, le=1.0)
-
-
-class Speed(BaseModel):
-    """Speed value"""
-
-    value: float = Field(1.0, gt=0.0)
-
-
-class Brightness(BaseModel):
-    """Brightness value"""
-
-    value: float = Field(..., ge=0.0, le=1.0)
-
-
-class PatternType(str, Enum):
-    """Available pattern types"""
-
-    SOLID = "solid"
-    GRADIENT = "gradient"
-    WAVE = "wave"
-    RAINBOW = "rainbow"
-    CHASE = "chase"
-    SCAN = "scan"
-    TWINKLE = "twinkle"
-    METEOR = "meteor"
-    BREATHE = "breathe"
-
-
-class PatternParameters(BaseModel):
-    """Base pattern parameters"""
-
-    color: Optional[ColorValue] = None
-    color1: Optional[ColorValue] = None
-    color2: Optional[ColorValue] = None
-    speed: Optional[float] = Field(None, gt=0.0)
-    brightness: Optional[float] = Field(None, ge=0.0, le=1.0)
-    position: Optional[float] = Field(None, ge=0.0, le=1.0)
-
-    @validator("speed")
-    def validate_speed(cls, v):
-        if v is not None and v <= 0:
-            raise ValueError("Speed must be greater than 0")
-        return v
-
-
-class PatternRequest(BaseModel):
-    """Pattern request with validated type and parameters"""
-
-    pattern: PatternType
-    params: PatternParameters = Field(default_factory=PatternParameters)
-
-
-class ModifierType(str, Enum):
-    """Available modifier types"""
-
-    BLINK = "blink"
-    FADE = "fade"
-    PULSE = "pulse"
-    SPARKLE = "sparkle"
-    AUDIO = "audio"
-
-
-class ModifierParameters(BaseModel):
-    """Base modifier parameters"""
-
-    speed: Optional[float] = Field(None, gt=0.0)
-    intensity: Optional[float] = Field(None, ge=0.0, le=1.0)
-    color: Optional[ColorValue] = None
-    enabled: bool = True
-
-
-class ModifierRequest(BaseModel):
-    """Modifier request with validated type and parameters"""
-
-    name: ModifierType
-    params: ModifierParameters = Field(default_factory=ModifierParameters)
-
-
-class AudioMetricType(str, Enum):
-    """Available audio metrics"""
-
-    VOLUME = "volume"
-    BEAT = "beat"
-    ONSET = "onset"
-    SPECTRAL_CENTROID = "spectral_centroid"
-    SPECTRAL_ROLLOFF = "spectral_rolloff"
-    SPECTRAL_FLUX = "spectral_flux"
-
-
-class AudioBindingRequest(BaseModel):
-    """Audio binding request"""
-
-    modifier_name: ModifierType
-    parameter: str
-    audio_metric: AudioMetricType
-    scale: float = Field(1.0, gt=0.0)
-    offset: float = Field(0.0)
-
-
-class BrightnessRequest(BaseModel):
-    """Brightness control request"""
-
-    value: float = Field(..., ge=0.0, le=1.0)
-
-
-class PerformanceMetrics(BaseModel):
-    """Performance metrics"""
-
-    fps: float
-    frame_time: float
-    avg_frame_time: float
-
-
-class AudioState(BaseModel):
-    """Audio processing state"""
-
-    enabled: bool
-    active_bindings: List[AudioBindingRequest] = []
-
-
-class SystemState(BaseModel):
-    """Complete system state"""
-
-    pattern: PatternType
-    active_modifiers: List[ModifierType] = []
-    performance: PerformanceMetrics
-    audio: Optional[AudioState] = None
-    brightness: float = Field(1.0, ge=0.0, le=1.0)
-
-
-class ParameterMetadata(BaseModel):
-    """Parameter metadata"""
-
-    type: str
-    min: Optional[float] = None
-    max: Optional[float] = None
-    default: Any = None
-    description: Optional[str] = None
-    units: Optional[str] = None
-
-
-class PatternMetadata(BaseModel):
-    """Pattern metadata"""
-
-    name: PatternType
-    description: str
-    parameters: Dict[str, ParameterMetadata]
-    supported_modifiers: List[ModifierType]
-
-
-class ModifierMetadata(BaseModel):
-    """Modifier metadata"""
-
-    name: ModifierType
-    description: str
-    parameters: Dict[str, ParameterMetadata]
-    supported_audio_metrics: Optional[List[AudioMetricType]] = None
-
+# Global registries
+pattern_registry = PatternRegistry()
+modifier_registry = ModifierRegistry()
 
 # Global controller instance (will be set during app startup)
 _controller: SystemController = None
@@ -189,6 +38,8 @@ def init_controller(controller: SystemController):
     """Initialize the global controller instance"""
     global _controller
     _controller = controller
+    _register_patterns()
+    _register_modifiers()
 
 
 def _check_controller():
@@ -200,6 +51,64 @@ def _check_controller():
         )
 
 
+def _register_patterns():
+    """Register available patterns from the pattern engine"""
+    patterns = _controller.pattern_engine.get_available_patterns()
+    for pattern in patterns:
+        pattern_def = PatternDefinition(
+            name=pattern["name"],
+            category=_determine_pattern_category(pattern["name"]),
+            description=pattern["description"],
+            parameters=pattern["parameters"],
+            supported_modifiers=pattern["supported_modifiers"],
+        )
+        pattern_registry.register_pattern(pattern_def)
+
+
+def _register_modifiers():
+    """Register available modifiers from the pattern engine"""
+    modifiers = _controller.pattern_engine.get_available_modifiers()
+    for modifier in modifiers:
+        modifier_def = ModifierDefinition(
+            name=modifier["name"],
+            category=_determine_modifier_category(modifier["name"]),
+            description=modifier["description"],
+            parameters=modifier["parameters"],
+            supported_audio_metrics=modifier.get("supported_audio_metrics"),
+        )
+        modifier_registry.register_modifier(modifier_def)
+
+
+def _determine_pattern_category(pattern_name: str) -> PatternCategory:
+    """Determine pattern category based on name and characteristics"""
+    static_patterns = {"solid", "gradient"}
+    moving_patterns = {"wave", "rainbow", "chase", "scan"}
+    particle_patterns = {"twinkle", "meteor", "breathe"}
+
+    if pattern_name in static_patterns:
+        return PatternCategory.STATIC
+    elif pattern_name in moving_patterns:
+        return PatternCategory.MOVING
+    elif pattern_name in particle_patterns:
+        return PatternCategory.PARTICLE
+    return PatternCategory.CUSTOM
+
+
+def _determine_modifier_category(modifier_name: str) -> ModifierCategory:
+    """Determine modifier category based on name and characteristics"""
+    effect_modifiers = {"brightness", "speed", "direction", "color", "strobe", "fade"}
+    audio_modifiers = {"volume", "beat", "spectrum"}
+    composite_modifiers = {"multi", "transition", "sequence"}
+
+    if modifier_name in effect_modifiers:
+        return ModifierCategory.EFFECT
+    elif modifier_name in audio_modifiers:
+        return ModifierCategory.AUDIO
+    elif modifier_name in composite_modifiers:
+        return ModifierCategory.COMPOSITE
+    return ModifierCategory.CUSTOM
+
+
 # Endpoints
 @router.get("/state", response_model=SystemState)
 async def get_system_state():
@@ -208,20 +117,18 @@ async def get_system_state():
     try:
         state = _controller.get_state()
         return SystemState(
-            pattern=state["pattern"],
+            active_pattern=state["pattern"],
+            pattern_parameters=state.get("pattern_parameters", {}),
             active_modifiers=state["modifiers"],
+            modifier_parameters=state.get("modifier_parameters", {}),
+            audio_bindings=state.get("audio_bindings", []),
             performance=PerformanceMetrics(
                 fps=state["performance"]["fps"],
                 frame_time=state["performance"]["frame_time"],
                 avg_frame_time=state["performance"].get("avg_frame_time", 0.0),
+                memory_usage=state["performance"].get("memory_usage"),
             ),
-            audio=AudioState(
-                enabled=state["audio"]["enabled"],
-                active_bindings=state["audio"].get("bindings", []),
-            )
-            if state.get("audio")
-            else None,
-            brightness=_controller.config.led.brightness,
+            is_running=True,
         )
     except Exception as e:
         raise HTTPException(
@@ -229,45 +136,68 @@ async def get_system_state():
         )
 
 
-@router.post("/pattern")
+@router.post("/pattern", response_model=BaseResponse)
 async def set_pattern(request: PatternRequest):
-    """Set active pattern with validated parameters"""
+    """Set active pattern"""
     _check_controller()
     try:
-        # Convert the structured parameters to dict format expected by controller
-        params = request.params.dict(exclude_none=True)
-        if "color" in params:
-            params["color"] = params["color"].dict()
-        if "color1" in params:
-            params["color1"] = params["color1"].dict()
-        if "color2" in params:
-            params["color2"] = params["color2"].dict()
+        # Validate pattern exists
+        if request.pattern_name not in pattern_registry.patterns:
+            raise ValidationError(f"Pattern '{request.pattern_name}' not found")
 
-        await _controller.set_pattern(request.pattern.value, params)
-        return {
-            "status": "success",
-            "message": f"Pattern {request.pattern.value} set successfully",
-        }
+        # Convert parameters to engine format
+        engine_params = {}
+        for param_name, param in request.parameters.items():
+            if param.type == "color":
+                engine_params.update(
+                    {
+                        f"{param_name}_red": param.value["red"],
+                        f"{param_name}_green": param.value["green"],
+                        f"{param_name}_blue": param.value["blue"],
+                    }
+                )
+            else:
+                engine_params[param_name] = param.value
+
+        await _controller.set_pattern(request.pattern_name, engine_params)
+        return BaseResponse(
+            status="success",
+            message=f"Pattern '{request.pattern_name}' set successfully",
+        )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set pattern: {str(e)}")
 
 
-@router.post("/modifier")
+@router.post("/modifier", response_model=BaseResponse)
 async def toggle_modifier(request: ModifierRequest):
-    """Toggle pattern modifier with validated parameters"""
+    """Toggle pattern modifier"""
     _check_controller()
     try:
-        params = request.params.dict(exclude_none=True)
-        if "color" in params:
-            params["color"] = params["color"].dict()
+        # Validate modifier exists
+        if request.modifier_name not in modifier_registry.modifiers:
+            raise ValidationError(f"Modifier '{request.modifier_name}' not found")
 
-        await _controller.toggle_modifier(request.name.value, params)
-        return {
-            "status": "success",
-            "message": f"Modifier {request.name.value} toggled successfully",
-        }
+        # Convert parameters to engine format
+        engine_params = {}
+        for param_name, param in request.parameters.items():
+            if param.type == "color":
+                engine_params.update(
+                    {
+                        "red": param.value["red"],
+                        "green": param.value["green"],
+                        "blue": param.value["blue"],
+                    }
+                )
+            else:
+                engine_params[param_name] = param.value
+
+        await _controller.toggle_modifier(request.modifier_name, engine_params)
+        return BaseResponse(
+            status="success",
+            message=f"Modifier '{request.modifier_name}' toggled successfully",
+        )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -276,37 +206,50 @@ async def toggle_modifier(request: ModifierRequest):
         )
 
 
-@router.post("/brightness")
-async def set_brightness(request: BrightnessRequest):
-    """Set LED brightness with validation"""
+@router.get("/patterns", response_model=List[PatternDefinition])
+async def get_available_patterns():
+    """Get all available patterns"""
     _check_controller()
-    try:
-        await _controller.set_brightness(request.value)
-        return {"status": "success", "message": f"Brightness set to {request.value}"}
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to set brightness: {str(e)}"
-        )
+    return list(pattern_registry.patterns.values())
 
 
-@router.post("/audio/bind")
-async def add_audio_binding(request: AudioBindingRequest):
-    """Add audio parameter binding with validation"""
+@router.get("/patterns/{category}", response_model=List[PatternDefinition])
+async def get_patterns_by_category(category: PatternCategory):
+    """Get patterns in a specific category"""
+    _check_controller()
+    return pattern_registry.get_patterns_by_category(category)
+
+
+@router.get("/modifiers", response_model=List[ModifierDefinition])
+async def get_available_modifiers():
+    """Get all available modifiers"""
+    _check_controller()
+    return list(modifier_registry.modifiers.values())
+
+
+@router.get("/modifiers/{category}", response_model=List[ModifierDefinition])
+async def get_modifiers_by_category(category: ModifierCategory):
+    """Get modifiers in a specific category"""
+    _check_controller()
+    return modifier_registry.get_modifiers_by_category(category)
+
+
+@router.post("/audio/bind", response_model=BaseResponse)
+async def add_audio_binding(binding: AudioBinding):
+    """Add audio parameter binding"""
     _check_controller()
     try:
         await _controller.add_audio_binding(
-            request.modifier_name.value,
-            request.parameter,
-            request.audio_metric.value,
-            request.scale,
-            request.offset,
+            binding.modifier_name,
+            binding.parameter_name,
+            binding.metric,
+            binding.scale,
+            binding.offset,
         )
-        return {
-            "status": "success",
-            "message": f"Audio binding added for {request.modifier_name.value}",
-        }
+        return BaseResponse(
+            status="success",
+            message=f"Audio binding added for '{binding.modifier_name}'",
+        )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -315,16 +258,15 @@ async def add_audio_binding(request: AudioBindingRequest):
         )
 
 
-@router.delete("/audio/bind/{modifier_name}")
-async def remove_audio_binding(modifier_name: ModifierType):
+@router.delete("/audio/bind/{modifier_name}", response_model=BaseResponse)
+async def remove_audio_binding(modifier_name: str):
     """Remove audio parameter binding"""
     _check_controller()
     try:
-        await _controller.remove_audio_binding(modifier_name.value)
-        return {
-            "status": "success",
-            "message": f"Audio binding removed for {modifier_name.value}",
-        }
+        await _controller.remove_audio_binding(modifier_name)
+        return BaseResponse(
+            status="success", message=f"Audio binding removed for '{modifier_name}'"
+        )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -333,120 +275,15 @@ async def remove_audio_binding(modifier_name: ModifierType):
         )
 
 
-@router.get("/patterns", response_model=List[PatternMetadata])
-async def get_available_patterns():
-    """Get list of available patterns with metadata"""
-    _check_controller()
-    try:
-        patterns = _controller.pattern_engine.get_available_patterns()
-        return [
-            PatternMetadata(
-                name=PatternType(pattern["name"]),
-                description=pattern["description"],
-                parameters=pattern["parameters"],
-                supported_modifiers=[
-                    ModifierType(m) for m in pattern["supported_modifiers"]
-                ],
-            )
-            for pattern in patterns
-        ]
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get available patterns: {str(e)}"
-        )
-
-
-@router.get("/patterns/{pattern_name}", response_model=PatternMetadata)
-async def get_pattern_metadata(pattern_name: PatternType):
-    """Get metadata for a specific pattern"""
-    _check_controller()
-    try:
-        pattern = _controller.pattern_engine.get_pattern_metadata(pattern_name.value)
-        return PatternMetadata(
-            name=PatternType(pattern["name"]),
-            description=pattern["description"],
-            parameters=pattern["parameters"],
-            supported_modifiers=[
-                ModifierType(m) for m in pattern["supported_modifiers"]
-            ],
-        )
-    except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Pattern '{pattern_name}' not found"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get pattern metadata: {str(e)}"
-        )
-
-
-@router.get("/modifiers", response_model=List[ModifierMetadata])
-async def get_available_modifiers():
-    """Get list of available modifiers with metadata"""
-    _check_controller()
-    try:
-        modifiers = _controller.pattern_engine.get_available_modifiers()
-        return [
-            ModifierMetadata(
-                name=ModifierType(modifier["name"]),
-                description=modifier["description"],
-                parameters=modifier["parameters"],
-                supported_audio_metrics=[
-                    AudioMetricType(m) for m in modifier["supported_audio_metrics"]
-                ]
-                if modifier.get("supported_audio_metrics")
-                else None,
-            )
-            for modifier in modifiers
-        ]
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get available modifiers: {str(e)}"
-        )
-
-
-@router.get("/modifiers/{modifier_name}", response_model=ModifierMetadata)
-async def get_modifier_metadata(modifier_name: ModifierType):
-    """Get metadata for a specific modifier"""
-    _check_controller()
-    try:
-        modifier = _controller.pattern_engine.get_modifier_metadata(modifier_name.value)
-        return ModifierMetadata(
-            name=ModifierType(modifier["name"]),
-            description=modifier["description"],
-            parameters=modifier["parameters"],
-            supported_audio_metrics=[
-                AudioMetricType(m) for m in modifier["supported_audio_metrics"]
-            ]
-            if modifier.get("supported_audio_metrics")
-            else None,
-        )
-    except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Modifier '{modifier_name}' not found"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get modifier metadata: {str(e)}"
-        )
-
-
-@router.get("/audio/metrics", response_model=List[AudioMetricType])
-async def get_available_audio_metrics():
-    """Get list of available audio metrics for bindings"""
-    _check_controller()
-    if not _controller.audio_enabled:
-        raise HTTPException(status_code=400, detail="Audio processing is not enabled")
-    return list(AudioMetricType)
-
-
-@router.post("/modifiers/reset")
+@router.post("/modifiers/reset", response_model=BaseResponse)
 async def reset_modifiers():
-    """Reset all active modifiers to their default state"""
+    """Reset all active modifiers"""
     _check_controller()
     try:
         await _controller.reset_modifiers()
-        return {"status": "success", "message": "All modifiers reset successfully"}
+        return BaseResponse(
+            status="success", message="All modifiers reset successfully"
+        )
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to reset modifiers: {str(e)}"

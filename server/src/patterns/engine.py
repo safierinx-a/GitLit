@@ -143,7 +143,10 @@ class PatternEngine:
             return None
 
         try:
-            logger.debug(f"Generating pattern: {self.current_config.pattern_type}")
+            logger.debug(
+                f"Generating pattern: {self.current_config.pattern_type} "
+                f"with params: {self.current_config.parameters}"
+            )
 
             # Generate base pattern
             frame = self.current_pattern.generate(
@@ -182,7 +185,8 @@ class PatternEngine:
             nonzero_pixels = np.count_nonzero(np.any(frame > 0, axis=1))
             logger.debug(
                 f"Frame stats - Shape: {frame.shape}, Range: [{frame.min()}, {frame.max()}], "
-                f"Active pixels: {nonzero_pixels}/{self._num_pixels}"
+                f"Active pixels: {nonzero_pixels}/{self._num_pixels}, "
+                f"First non-zero pixel: {frame[frame.any(axis=1)][0] if nonzero_pixels > 0 else 'None'}"
             )
 
             # Send frame via WebSocket
@@ -388,7 +392,9 @@ class PatternEngine:
                         f"Pattern generated invalid frame shape: {test_frame.shape if test_frame is not None else None}"
                     )
                 logger.info(
-                    f"Test frame generated successfully with shape {test_frame.shape}"
+                    f"Test frame generated successfully with shape {test_frame.shape}, "
+                    f"range: [{test_frame.min()}, {test_frame.max()}], "
+                    f"non-zero pixels: {np.count_nonzero(np.any(test_frame > 0, axis=1))}"
                 )
             except Exception as e:
                 logger.error(f"Failed to generate test frame: {e}")

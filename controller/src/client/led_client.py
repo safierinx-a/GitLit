@@ -62,6 +62,9 @@ class LEDClient:
     ):
         """Handle incoming WebSocket messages"""
         try:
+            # Log raw message
+            logger.debug(f"Raw message received: {message[:200]}...")  # First 200 chars
+
             data = json.loads(message)
             msg_type = data.get("type")
 
@@ -72,6 +75,8 @@ class LEDClient:
                     logger.debug(f"Frame shape: {frame.shape}, dtype: {frame.dtype}")
                     logger.debug(f"Frame range: min={frame.min()}, max={frame.max()}")
                     logger.debug(f"Non-zero pixels: {np.count_nonzero(frame)}")
+                    logger.debug(f"Pattern type: {pattern_data.get('pattern_type')}")
+                    logger.debug(f"Stats: {pattern_data.get('stats', {})}")
 
                     # Log first few pixels if they're non-zero
                     if frame.max() > 0:

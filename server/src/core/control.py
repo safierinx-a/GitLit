@@ -76,16 +76,12 @@ class SystemController:
     async def initialize(self) -> None:
         """Initialize the controller and set default pattern"""
         # Set default pattern (solid color)
-        default_pattern = PatternConfig(
-            pattern_type="gradient",
-            # parameters={
-            #     "red": 0,
-            #     "green": 0,
-            #     "blue": 255,  # Blue color
-            # },
-            modifiers=[],
-        )
-        await self.set_pattern("gradient", default_pattern.parameters)
+        default_params = {
+            "red": 0,
+            "green": 0,
+            "blue": 255,  # Blue color
+        }
+        await self.set_pattern("solid", default_params)
         logger.info("Default pattern initialized")
 
     def init_audio(self, audio_processor: Any) -> None:

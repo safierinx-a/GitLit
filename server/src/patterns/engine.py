@@ -7,7 +7,7 @@ import asyncio
 import numpy as np
 from fastapi import WebSocket
 
-from ..api.websocket import manager as ws_manager
+from ..core.websocket_manager import manager as ws_manager
 from ..core.config import PatternConfig
 from ..core.exceptions import ValidationError
 from ..core.state import PatternState
@@ -86,13 +86,20 @@ class PatternEngine:
 
     async def _send_heartbeat(self):
         """Send periodic heartbeat to clients"""
+        backoff = 1
+        max_backoff = 30
         while True:
             try:
                 await ws_manager.broadcast({"type": "heartbeat"})
                 await asyncio.sleep(5)  # Every 5 seconds
+                backoff = 1  # Reset backoff on success
+            except asyncio.CancelledError:
+                logger.info("Heartbeat task cancelled")
+                break
             except Exception as e:
                 logger.error(f"Error sending heartbeat: {e}")
-                await asyncio.sleep(1)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, max_backoff)  # Exponential backoff
 
     async def handle_client_connect(self, websocket: WebSocket) -> None:
         """Send current pattern state when client connects"""

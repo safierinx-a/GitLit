@@ -8,6 +8,10 @@ from .modifiers.base import BaseModifier
 class PatternConfig:
     """Configuration for a pattern and its modifiers"""
 
+    pattern_type: str
+    parameters: Dict[str, Any]
+    modifiers: List[tuple[BaseModifier, Dict[str, Any]]] = field(default_factory=list)
+
     def __init__(
         self,
         pattern_type: str,

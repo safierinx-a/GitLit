@@ -1,87 +1,15 @@
 import asyncio
 import json
 import logging
-from typing import Any, Dict, Set
-from weakref import WeakSet
+from typing import Any, Dict
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+
+from ..core.websocket_manager import manager
 from ..core.control import SystemController
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["websocket"])
-
-
-class ConnectionManager:
-    """Manages active WebSocket connections"""
-
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def __init__(self):
-        if not hasattr(self, "initialized"):
-            # Use WeakSet to automatically remove dead connections
-            self.active_connections: Set[WebSocket] = WeakSet()
-            self._lock = asyncio.Lock()
-            self.initialized = True
-
-    async def connect(self, websocket: WebSocket):
-        """Accept and store new connection"""
-        try:
-            await websocket.accept()
-            async with self._lock:
-                self.active_connections.add(websocket)
-                logger.info(
-                    f"Client connected. Total connections: {len(self.active_connections)}"
-                )
-        except Exception as e:
-            logger.error(f"Error accepting connection: {e}")
-            raise
-
-    async def disconnect(self, websocket: WebSocket):
-        """Remove stored connection"""
-        async with self._lock:
-            try:
-                if websocket in self.active_connections:
-                    self.active_connections.remove(websocket)
-                    logger.info(
-                        f"Client disconnected. Total connections: {len(self.active_connections)}"
-                    )
-            except Exception as e:
-                logger.error(f"Error during disconnect: {e}")
-
-    async def broadcast(self, message: Dict[str, Any]):
-        """Broadcast message to all connections with rate limiting"""
-        if not self.active_connections:
-            return
-
-        try:
-            # Convert message to JSON once for all clients
-            data = json.dumps(message)
-            async with self._lock:
-                dead_connections = set()
-                for connection in self.active_connections:
-                    try:
-                        await connection.send_text(data)
-                    except WebSocketDisconnect:
-                        dead_connections.add(connection)
-                    except Exception as e:
-                        logger.error(f"Failed to send message: {e}")
-                        dead_connections.add(connection)
-
-                # Clean up dead connections
-                if dead_connections:
-                    self.active_connections.difference_update(dead_connections)
-                    logger.info(f"Removed {len(dead_connections)} dead connections")
-        except Exception as e:
-            logger.error(f"Broadcast error: {e}")
-
-
-# Global singleton connection manager
-manager = ConnectionManager()
 
 
 @router.websocket("/ws")

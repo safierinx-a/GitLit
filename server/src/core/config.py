@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from .exceptions import ValidationError
+
 
 @dataclass
 class AudioConfig:
@@ -52,7 +54,36 @@ class SystemConfig:
     @classmethod
     def create_default(cls) -> "SystemConfig":
         """Create default configuration"""
-        return cls()
+        config = cls()
+
+        # Validate LED configuration
+        if config.led.count <= 0:
+            raise ValidationError("LED count must be greater than 0")
+        if not 0 <= config.led.brightness <= 1:
+            raise ValidationError("LED brightness must be between 0 and 1")
+        if config.led.refresh_rate <= 0:
+            raise ValidationError("LED refresh rate must be greater than 0")
+
+        # Validate performance configuration
+        if config.performance.target_fps <= 0:
+            raise ValidationError("Target FPS must be greater than 0")
+        if config.performance.max_frame_time <= 0:
+            raise ValidationError("Max frame time must be greater than 0")
+        if config.performance.buffer_size <= 0:
+            raise ValidationError("Buffer size must be greater than 0")
+
+        # Validate audio configuration if enabled
+        if config.features.audio_enabled:
+            if config.audio.sample_rate <= 0:
+                raise ValidationError("Audio sample rate must be greater than 0")
+            if config.audio.channels <= 0:
+                raise ValidationError("Audio channels must be greater than 0")
+            if config.audio.chunk_size <= 0:
+                raise ValidationError("Audio chunk size must be greater than 0")
+            if config.audio.format not in ["float32", "int16"]:
+                raise ValidationError("Audio format must be either float32 or int16")
+
+        return config
 
     def update(self, updates: Dict[str, Any]) -> None:
         """Update configuration with new values"""
@@ -64,6 +95,9 @@ class SystemConfig:
             self.audio = AudioConfig(**updates["audio"])
         if "performance" in updates:
             self.performance = PerformanceConfig(**updates["performance"])
+
+        # Re-validate after updates
+        self.__class__.validate(self)
 
 
 @dataclass

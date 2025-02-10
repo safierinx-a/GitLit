@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 
 from ..core.exceptions import PatternError
-from ..core.state import PatternState
 from ..core.timing import TimeState
+from .config import PatternState
 
 
 @dataclass

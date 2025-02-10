@@ -8,9 +8,8 @@ import numpy as np
 from fastapi import WebSocket
 
 from ..core.websocket_manager import manager as ws_manager
-from ..core.config import PatternConfig
 from ..core.exceptions import ValidationError
-from ..core.state import PatternState
+from .config import PatternConfig
 from .base import BasePattern, ModifiableAttribute, ParameterSpec
 from .modifiers.base import BaseModifier
 from .types import (

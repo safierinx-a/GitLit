@@ -200,9 +200,27 @@ class PatternEngine:
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
 
+    def cleanup_sync(self) -> None:
+        """Synchronous cleanup for use in __del__"""
+        try:
+            # Clear current pattern
+            if self.current_pattern:
+                self.current_pattern.reset()
+            self.current_pattern = None
+            self.current_config = None
+
+            # Clear pattern instances
+            self._pattern_instances.clear()
+            self._patterns.clear()
+            self._modifiers.clear()
+
+            # Note: We can't do WebSocket broadcast in sync cleanup
+        except Exception as e:
+            logger.error(f"Cleanup error: {e}")
+
     def __del__(self) -> None:
         """Ensure cleanup on deletion"""
-        self.cleanup()
+        self.cleanup_sync()  # Use sync version for __del__
 
     def validate_parameters(
         self, pattern_class: Type[BasePattern], params: Dict[str, Any]
@@ -446,7 +464,7 @@ class PatternEngine:
             return None
         return modifier_cls.SUPPORTED_AUDIO_METRICS
 
-    def reset_modifiers(self) -> None:
+    async def reset_modifiers(self) -> None:
         """Reset all active modifiers to their default state"""
         try:
             if not self.current_pattern:
@@ -460,7 +478,7 @@ class PatternEngine:
             self._modifiers.clear()
 
             # Regenerate current frame
-            self.update(time.time() * 1000)
+            await self.update(time.time() * 1000)
 
             logger.info("All modifiers reset successfully")
         except Exception as e:

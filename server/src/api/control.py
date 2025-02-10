@@ -90,7 +90,7 @@ async def set_pattern(request: PatternRequest):
     """Set active pattern"""
     if not _controller:
         raise HTTPException(status_code=503, detail="System not initialized")
-    _controller.set_pattern(request.pattern, request.params)
+    await _controller.set_pattern(request.pattern, request.params)
     return {"status": "success"}
 
 
@@ -99,7 +99,7 @@ async def toggle_modifier(request: ModifierRequest):
     """Toggle pattern modifier"""
     if not _controller:
         raise HTTPException(status_code=503, detail="System not initialized")
-    _controller.toggle_modifier(request.name, request.params)
+    await _controller.toggle_modifier(request.name, request.params)
     return {"status": "success"}
 
 
@@ -108,7 +108,7 @@ async def set_brightness(request: BrightnessRequest):
     """Set LED brightness"""
     if not _controller:
         raise HTTPException(status_code=503, detail="System not initialized")
-    _controller.set_brightness(request.value)
+    await _controller.set_brightness(request.value)
     return {"status": "success"}
 
 
@@ -117,7 +117,7 @@ async def add_audio_binding(request: AudioBindingRequest):
     """Add audio parameter binding"""
     if not _controller:
         raise HTTPException(status_code=503, detail="System not initialized")
-    _controller.add_audio_binding(
+    await _controller.add_audio_binding(
         request.modifier_name,
         request.parameter,
         request.audio_metric,
@@ -132,7 +132,7 @@ async def remove_audio_binding(modifier_name: str):
     """Remove audio parameter binding"""
     if not _controller:
         raise HTTPException(status_code=503, detail="System not initialized")
-    _controller.remove_audio_binding(modifier_name)
+    await _controller.remove_audio_binding(modifier_name)
     return {"status": "success"}
 
 
@@ -200,5 +200,5 @@ async def reset_modifiers():
     """Reset all active modifiers to their default state"""
     if not _controller:
         raise HTTPException(status_code=503, detail="System not initialized")
-    _controller.reset_modifiers()
+    await _controller.reset_modifiers()
     return {"status": "success"}

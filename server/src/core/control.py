@@ -197,12 +197,16 @@ class SystemController:
             elif command.type == CommandType.SET_PATTERN:
                 pattern_name = command.params["pattern"]
                 params = command.params.get("params", {})
+                logger.info(
+                    f"Handling SET_PATTERN command: {pattern_name} with params: {params}"
+                )
                 pattern_config = PatternConfig(
                     pattern_type=pattern_name,
                     parameters=params,
                     modifiers=[],
                 )
                 self.pattern_engine.set_pattern(pattern_config)
+                logger.debug("Pattern set successfully")
             elif command.type == CommandType.UPDATE_PARAMS:
                 await self.pattern_engine.update_parameters(command.params)
             elif command.type == CommandType.TOGGLE_MODIFIER:
@@ -234,12 +238,14 @@ class SystemController:
         self, pattern_name: str, params: Optional[Dict] = None
     ) -> None:
         """Set the active pattern"""
+        logger.info(f"Setting pattern to {pattern_name} with params: {params}")
         await self.command_queue.put(
             Command(
                 CommandType.SET_PATTERN,
                 {"pattern": pattern_name, "params": params or {}},
             )
         )
+        logger.debug("Pattern command queued successfully")
 
     async def update_parameters(self, params: Dict[str, Any]) -> None:
         """Update pattern parameters"""

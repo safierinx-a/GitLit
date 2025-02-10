@@ -73,6 +73,8 @@ class DirectLEDController(LEDController):
         try:
             import board
             from rpi_ws281x import PixelStrip, Color
+
+            logger.debug("Successfully imported LED libraries")
         except ImportError as e:
             logger.error(f"Failed to import LED libraries: {e}")
             raise
@@ -82,6 +84,7 @@ class DirectLEDController(LEDController):
             pixels=np.zeros((num_pixels, 3), dtype=np.uint8), brightness=1.0, is_on=True
         )
         self._lock = threading.Lock()
+        logger.debug(f"Initialized LED state with {num_pixels} pixels")
 
         # LED strip configuration
         LED_COUNT = num_pixels  # Number of LED pixels
@@ -91,6 +94,10 @@ class DirectLEDController(LEDController):
         LED_BRIGHTNESS = 255  # Set to 0 for darkest and 255 for brightest
         LED_INVERT = False  # True to invert the signal
         LED_CHANNEL = 0  # PWM channel
+
+        logger.debug(
+            f"Configuring LED strip: PIN={LED_PIN}, FREQ={LED_FREQ_HZ}, DMA={LED_DMA}, CHANNEL={LED_CHANNEL}"
+        )
 
         # Initialize LED strip
         try:
@@ -104,10 +111,12 @@ class DirectLEDController(LEDController):
                 LED_CHANNEL,
             )
             self.pixels.begin()
+            logger.debug("LED strip initialized successfully")
             # Initialize with all pixels off
             for i in range(num_pixels):
                 self.pixels.setPixelColor(i, Color(0, 0, 0))
             self.pixels.show()
+            logger.debug("LED strip cleared successfully")
         except Exception as e:
             logger.error(f"Failed to initialize LED strip: {e}")
             raise
@@ -118,12 +127,16 @@ class DirectLEDController(LEDController):
         """Set pixel colors with error recovery"""
         with self._lock:
             if not self._state.is_on:
+                logger.debug("LED strip is off, ignoring set_pixels")
                 return
 
             try:
                 # Input validation
                 if not isinstance(pixels, np.ndarray):
                     pixels = np.array(pixels)
+                logger.debug(
+                    f"Input pixel array shape: {pixels.shape}, dtype: {pixels.dtype}"
+                )
 
                 # Ensure correct shape and type
                 pixels = np.clip(pixels, 0, 255).astype(np.uint8)
@@ -134,6 +147,9 @@ class DirectLEDController(LEDController):
 
                 # Apply brightness
                 pixels = (pixels * self._state.brightness).astype(np.uint8)
+                logger.debug(
+                    f"After brightness ({self._state.brightness}), range: [{pixels.min()}, {pixels.max()}]"
+                )
 
                 # Update hardware with retry
                 max_retries = 3
@@ -143,8 +159,9 @@ class DirectLEDController(LEDController):
                     try:
                         for i in range(len(pixels)):
                             r, g, b = pixels[i]
-                            self.pixels.setPixelColor(i, Color(r, g, b))
+                            self.pixels.setPixelColor(i, Color(g, r, b))
                         self.pixels.show()
+                        logger.debug(f"Successfully updated {len(pixels)} pixels")
 
                         # Success - update state and clear errors
                         self._state.pixels = pixels

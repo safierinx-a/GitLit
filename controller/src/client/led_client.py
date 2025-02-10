@@ -7,9 +7,15 @@ import threading
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
+import os
+import sys
 
 import websockets
 
+# Add parent directory to path for absolute imports
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 from led.controller import create_controller
 
 logger = logging.getLogger(__name__)
@@ -41,6 +47,8 @@ class LEDClient:
         self.heartbeat_timeout = 15.0  # Seconds before considering connection dead
         self._lock = threading.Lock()
 
+        logger.debug(f"Initializing LED client with config: {config}")
+
         # Initialize LED controller
         controller_config = {
             "type": config.controller_type,
@@ -48,10 +56,12 @@ class LEDClient:
             "pin": config.led_pin,
             "freq": config.led_freq,
         }
+        logger.debug(f"Creating LED controller with config: {controller_config}")
         self.led_controller = create_controller(controller_config)
         # Set initial brightness without updating pixels
         if hasattr(self.led_controller._state, "brightness"):
             self.led_controller._state.brightness = config.brightness
+            logger.debug(f"Set initial brightness to {config.brightness}")
         logger.info(
             f"Initialized {config.controller_type} LED controller with {config.led_count} pixels"
         )
@@ -108,6 +118,9 @@ class LEDClient:
                 if "frame" in pattern_data:
                     # Convert frame data to numpy array
                     frame = np.array(pattern_data["frame"], dtype=np.uint8)
+                    logger.debug(
+                        f"Received frame with shape {frame.shape}, range: [{frame.min()}, {frame.max()}]"
+                    )
                     self.led_controller.set_pixels(frame)
 
                 # Handle initial pattern config if provided

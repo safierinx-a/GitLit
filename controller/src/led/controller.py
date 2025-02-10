@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import threading
 import time
 import logging
-from rpi_ws281x import PixelStrip, Color
+from rpi_ws281x import PixelStrip, Color, ws
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ class DirectLEDController(LEDController):
     def __init__(self, num_pixels: int, pin: int = 18, freq: int = 800000):
         try:
             import board
-            from rpi_ws281x import PixelStrip, Color
+            from rpi_ws281x import PixelStrip, Color, ws
 
             logger.debug("Successfully imported LED libraries")
         except ImportError as e:
@@ -93,10 +93,14 @@ class DirectLEDController(LEDController):
         LED_DMA = 10  # DMA channel for generating signal
         LED_BRIGHTNESS = 255  # Set to 0 for darkest and 255 for brightest
         LED_INVERT = False  # True to invert the signal
-        LED_CHANNEL = 0  # PWM channel
+        LED_CHANNEL = (
+            1 if LED_PIN in [13, 18, 19] else 0
+        )  # Use PWM channel 1 for GPIO 18
+        LED_STRIP = ws.WS2811_STRIP_GRB  # Strip type and color ordering
 
         logger.debug(
-            f"Configuring LED strip: PIN={LED_PIN}, FREQ={LED_FREQ_HZ}, DMA={LED_DMA}, CHANNEL={LED_CHANNEL}"
+            f"Configuring LED strip: PIN={LED_PIN}, FREQ={LED_FREQ_HZ}, DMA={LED_DMA}, "
+            f"CHANNEL={LED_CHANNEL}, STRIP_TYPE={LED_STRIP}"
         )
 
         # Initialize LED strip
@@ -109,14 +113,21 @@ class DirectLEDController(LEDController):
                 LED_INVERT,
                 LED_BRIGHTNESS,
                 LED_CHANNEL,
+                LED_STRIP,
             )
             self.pixels.begin()
             logger.debug("LED strip initialized successfully")
-            # Initialize with all pixels off
+
+            # Test pattern - set first LED to red to verify communication
+            self.pixels.setPixelColor(0, Color(255, 0, 0))  # Red
+            self.pixels.show()
+            time.sleep(0.5)  # Wait to see the test LED
+
+            # Then clear all
             for i in range(num_pixels):
                 self.pixels.setPixelColor(i, Color(0, 0, 0))
             self.pixels.show()
-            logger.debug("LED strip cleared successfully")
+            logger.debug("LED strip cleared successfully after test pattern")
         except Exception as e:
             logger.error(f"Failed to initialize LED strip: {e}")
             raise
@@ -135,7 +146,8 @@ class DirectLEDController(LEDController):
                 if not isinstance(pixels, np.ndarray):
                     pixels = np.array(pixels)
                 logger.debug(
-                    f"Input pixel array shape: {pixels.shape}, dtype: {pixels.dtype}"
+                    f"Input pixel array shape: {pixels.shape}, dtype: {pixels.dtype}, "
+                    f"range: [{pixels.min()}, {pixels.max()}]"
                 )
 
                 # Ensure correct shape and type
@@ -146,10 +158,11 @@ class DirectLEDController(LEDController):
                     )
 
                 # Apply brightness
-                pixels = (pixels * self._state.brightness).astype(np.uint8)
-                logger.debug(
-                    f"After brightness ({self._state.brightness}), range: [{pixels.min()}, {pixels.max()}]"
-                )
+                if self._state.brightness != 1.0:
+                    pixels = (pixels * self._state.brightness).astype(np.uint8)
+                    logger.debug(
+                        f"After brightness ({self._state.brightness}), range: [{pixels.min()}, {pixels.max()}]"
+                    )
 
                 # Update hardware with retry
                 max_retries = 3
@@ -157,11 +170,21 @@ class DirectLEDController(LEDController):
 
                 for attempt in range(max_retries):
                     try:
+                        any_nonzero = False
                         for i in range(len(pixels)):
                             r, g, b = pixels[i]
+                            if r > 0 or g > 0 or b > 0:
+                                any_nonzero = True
+                            # WS2811_STRIP_GRB - colors are reordered
                             self.pixels.setPixelColor(i, Color(g, r, b))
                         self.pixels.show()
-                        logger.debug(f"Successfully updated {len(pixels)} pixels")
+
+                        if any_nonzero:
+                            logger.debug(
+                                f"Updated {len(pixels)} pixels with non-zero values present"
+                            )
+                        else:
+                            logger.debug("Updated pixels - all values are zero")
 
                         # Success - update state and clear errors
                         self._state.pixels = pixels

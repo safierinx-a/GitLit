@@ -302,7 +302,7 @@ class PatternEngine:
         # Apply validated configuration
         self.current_pattern = pattern_class(self._num_pixels)
         self.current_config = PatternConfig(
-            name=config.pattern_type,
+            pattern_type=config.pattern_type,
             parameters=validated_params,
             modifiers=config.modifiers,
         )

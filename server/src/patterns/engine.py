@@ -31,6 +31,7 @@ class PatternEngine:
     """Manages pattern generation and validation"""
 
     def __init__(self, num_pixels: int):
+        logger.info(f"Initializing pattern engine with {num_pixels} LEDs")
         self._num_pixels = num_pixels
         self._patterns: Dict[str, Type[BasePattern]] = {}
         self._pattern_instances: Dict[str, BasePattern] = {}

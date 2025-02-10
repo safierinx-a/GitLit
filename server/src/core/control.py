@@ -53,6 +53,8 @@ class SystemController:
         # Store configuration
         self.config = config
 
+        logger.info(f"Initializing system controller with {self.config.led.count} LEDs")
+
         # Initialize components
         self.pattern_engine = PatternEngine(self.config.led.count)
 

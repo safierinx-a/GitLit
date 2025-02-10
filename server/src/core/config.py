@@ -19,7 +19,7 @@ class AudioConfig:
 class LEDConfig:
     """LED hardware configuration"""
 
-    count: int = 300
+    count: int = 600
     brightness: float = 1.0
     refresh_rate: int = 60
 

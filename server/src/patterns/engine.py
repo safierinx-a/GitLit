@@ -175,20 +175,34 @@ class PatternEngine:
                 )
                 return None
 
+            # Ensure frame values are in valid range
+            frame = np.clip(frame, 0, 255).astype(np.uint8)
+
+            # Log frame statistics
+            nonzero_pixels = np.count_nonzero(np.any(frame > 0, axis=1))
+            logger.debug(
+                f"Frame stats - Shape: {frame.shape}, Range: [{frame.min()}, {frame.max()}], "
+                f"Active pixels: {nonzero_pixels}/{self._num_pixels}"
+            )
+
             # Send frame via WebSocket
             try:
-                await ws_manager.broadcast(
-                    {
-                        "type": "pattern",
-                        "data": {
-                            "frame": frame.tolist(),
-                            "timestamp": time_ms,
-                            "pattern_type": self.current_config.pattern_type,
+                message = {
+                    "type": "pattern",
+                    "data": {
+                        "frame": frame.tolist(),
+                        "timestamp": time_ms,
+                        "pattern_type": self.current_config.pattern_type,
+                        "stats": {
+                            "active_pixels": int(nonzero_pixels),
+                            "max_value": int(frame.max()),
+                            "min_value": int(frame.min()),
                         },
-                    }
-                )
+                    },
+                }
+                await ws_manager.broadcast(message)
                 logger.debug(
-                    f"Frame sent successfully for pattern {self.current_config.pattern_type}"
+                    f"Frame broadcast complete for {self.current_config.pattern_type}"
                 )
             except Exception as e:
                 logger.error(f"Failed to send frame: {e}")

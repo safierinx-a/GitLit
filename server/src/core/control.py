@@ -136,11 +136,18 @@ class SystemController:
     async def _update_loop(self) -> None:
         """Main update loop"""
         last_update = asyncio.get_event_loop().time()
+        min_frame_time = 1.0 / self.config.performance.target_fps
 
         while self.is_running:
             try:
                 current_time = asyncio.get_event_loop().time()
                 frame_delta = current_time - last_update
+
+                # Rate limiting - ensure we don't update faster than target FPS
+                if frame_delta < min_frame_time:
+                    await asyncio.sleep(min_frame_time - frame_delta)
+                    current_time = asyncio.get_event_loop().time()
+                    frame_delta = current_time - last_update
 
                 # Process any pending commands
                 while not self.command_queue.empty():
@@ -150,8 +157,14 @@ class SystemController:
 
                 # Update pattern
                 frame = await self.pattern_engine.update(
-                    current_time * 1000
-                )  # Convert to milliseconds
+                    current_time * 1000  # Convert to milliseconds
+                )
+
+                if frame is not None:
+                    logger.debug(
+                        f"Generated frame with shape {frame.shape}, "
+                        f"range: [{frame.min()}, {frame.max()}]"
+                    )
 
                 # Process audio if enabled
                 if self.config.features.audio_enabled and self.audio_processor:
@@ -162,11 +175,6 @@ class SystemController:
                 if len(self.frame_times) > 60:
                     self.frame_times.pop(0)
                 self.last_frame_time = frame_delta
-
-                # Calculate sleep time to maintain target FPS
-                sleep_time = max(0, self.target_frame_time - frame_delta)
-                if sleep_time > 0:
-                    await asyncio.sleep(sleep_time)
 
                 last_update = current_time
 

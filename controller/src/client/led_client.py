@@ -34,9 +34,6 @@ class LEDClient:
 
     def __init__(self, config: ClientConfig):
         self.config = config
-        self.led_controller = create_controller(
-            {"type": "direct", "num_pixels": config.led_count, "pin": config.led_pin}
-        )
         self.reconnect_delay = 1.0  # Start with 1 second delay
         self.max_reconnect_delay = 30.0
         self.running = True

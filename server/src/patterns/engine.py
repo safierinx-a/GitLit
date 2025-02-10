@@ -139,6 +139,7 @@ class PatternEngine:
     async def update(self, time_ms: float) -> Optional[np.ndarray]:
         """Generate pattern frame and send via WebSocket"""
         if not self.current_pattern or not self.current_config:
+            logger.warning("No active pattern, skipping frame generation")
             return None
 
         try:
@@ -148,6 +149,10 @@ class PatternEngine:
             frame = self.current_pattern.generate(
                 time_ms, self.current_config.parameters
             )
+
+            if frame is None:
+                logger.error("Pattern generated None frame")
+                return None
 
             # Apply modifiers if configured
             if self.current_config.modifiers:
@@ -159,25 +164,50 @@ class PatternEngine:
                                 frame, modifier_config.get("parameters", {})
                             )
 
+            # Ensure frame is valid
+            if not isinstance(frame, np.ndarray):
+                logger.error(f"Invalid frame type: {type(frame)}")
+                return None
+
+            if frame.shape != (self._num_pixels, 3):
+                logger.error(
+                    f"Invalid frame shape: {frame.shape}, expected ({self._num_pixels}, 3)"
+                )
+                return None
+
             # Send frame via WebSocket
-            await ws_manager.broadcast(
-                {
-                    "type": "pattern",
-                    "data": {"frame": frame.tolist(), "timestamp": time_ms},
-                }
-            )
+            try:
+                await ws_manager.broadcast(
+                    {
+                        "type": "pattern",
+                        "data": {
+                            "frame": frame.tolist(),
+                            "timestamp": time_ms,
+                            "pattern_type": self.current_config.pattern_type,
+                        },
+                    }
+                )
+                logger.debug(
+                    f"Frame sent successfully for pattern {self.current_config.pattern_type}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send frame: {e}")
+                return None
 
             return frame
 
         except Exception as e:
             logger.error(f"Pattern update error: {e}")
             # Notify clients of error
-            await ws_manager.broadcast(
-                {
-                    "type": "error",
-                    "data": {"message": f"Pattern update failed: {str(e)}"},
-                }
-            )
+            try:
+                await ws_manager.broadcast(
+                    {
+                        "type": "error",
+                        "data": {"message": f"Pattern update failed: {str(e)}"},
+                    }
+                )
+            except Exception as broadcast_error:
+                logger.error(f"Failed to broadcast error: {broadcast_error}")
             return None
 
     async def cleanup(self) -> None:
@@ -251,23 +281,17 @@ class PatternEngine:
                     value = spec.type(value)
                 except (ValueError, TypeError):
                     raise ValidationError(
-                        f"Parameter {name} must be of type {spec.type.__name__}"
+                        f"Invalid type for parameter {name}: expected {spec.type.__name__}, got {type(value).__name__}"
                     )
 
-            # Range checking
+            # Range validation
             if spec.min_value is not None and value < spec.min_value:
                 raise ValidationError(
-                    f"Parameter {name} below minimum value {spec.min_value}"
+                    f"Parameter {name} value {value} is below minimum {spec.min_value}"
                 )
             if spec.max_value is not None and value > spec.max_value:
                 raise ValidationError(
-                    f"Parameter {name} above maximum value {spec.max_value}"
-                )
-
-            # Options checking
-            if hasattr(spec, "options") and value not in spec.options:
-                raise ValidationError(
-                    f"Invalid value for {name}. Must be one of: {spec.options}"
+                    f"Parameter {name} value {value} is above maximum {spec.max_value}"
                 )
 
             validated[name] = value
@@ -304,28 +328,36 @@ class PatternEngine:
             )
 
     def set_pattern(self, config: PatternConfig) -> None:
-        """Set and validate pattern configuration"""
-        if config.pattern_type not in self._patterns:
-            raise ValidationError(f"Pattern {config.pattern_type} not found")
+        """Set the current pattern with configuration"""
+        try:
+            # Get pattern class
+            pattern_class = self._patterns.get(config.pattern_type)
+            if not pattern_class:
+                raise ValidationError(f"Unknown pattern type: {config.pattern_type}")
 
-        pattern_class = self._patterns[config.pattern_type]
+            # Validate parameters
+            validated_params = self.validate_parameters(
+                pattern_class, config.parameters
+            )
 
-        # Validate pattern parameters
-        validated_params = self.validate_parameters(pattern_class, config.parameters)
+            # Create new pattern instance
+            pattern = pattern_class(self._num_pixels)
 
-        # Validate modifiers
-        if config.modifiers:
-            for modifier in config.modifiers:
-                self.validate_modifier_config(pattern_class, modifier)
+            # Update state
+            self.current_pattern = pattern
+            self.current_config = PatternConfig(
+                pattern_type=config.pattern_type,
+                parameters=validated_params,
+                modifiers=config.modifiers,
+            )
 
-        # Apply validated configuration
-        self.current_pattern = pattern_class(self._num_pixels)
-        self.current_config = PatternConfig(
-            pattern_type=config.pattern_type,
-            parameters=validated_params,
-            modifiers=config.modifiers,
-        )
-        self.current_pattern.reset()
+            logger.info(
+                f"Set pattern to {config.pattern_type} with params: {validated_params}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error setting pattern: {e}")
+            raise
 
     def validate_pattern_state(self, pattern: BasePattern) -> None:
         """Complete pattern state validation"""

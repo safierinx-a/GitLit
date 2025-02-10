@@ -58,18 +58,6 @@ class SystemController:
         # Initialize components
         self.pattern_engine = PatternEngine(self.config.led.count)
 
-        # Set default pattern (solid color)
-        default_pattern = PatternConfig(
-            pattern_type="solid",
-            parameters={
-                "red": 0,
-                "green": 0,
-                "blue": 255,  # Blue color
-            },
-            modifiers=[],
-        )
-        self.pattern_engine.set_pattern(default_pattern)
-
         # Control state
         self.is_running = False
         self.command_queue: asyncio.Queue[Command] = asyncio.Queue()
@@ -85,6 +73,21 @@ class SystemController:
         self.audio_processor = None
         self.audio_bindings: List[AudioBinding] = []
 
+    async def initialize(self) -> None:
+        """Initialize the controller and set default pattern"""
+        # Set default pattern (solid color)
+        default_pattern = PatternConfig(
+            pattern_type="solid",
+            parameters={
+                "red": 0,
+                "green": 0,
+                "blue": 255,  # Blue color
+            },
+            modifiers=[],
+        )
+        await self.set_pattern("solid", default_pattern.parameters)
+        logger.info("Default pattern initialized")
+
     def init_audio(self, audio_processor: Any) -> None:
         """Initialize audio processing"""
         self.audio_processor = audio_processor
@@ -95,6 +98,9 @@ class SystemController:
         async with self._lock:
             if self.is_running:
                 return
+
+            # Initialize default pattern
+            await self.initialize()
 
             self.is_running = True
             self.update_task = asyncio.create_task(self._update_loop())

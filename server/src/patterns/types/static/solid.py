@@ -58,10 +58,18 @@ class SolidPattern(BasePattern):
         ]
 
     def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
-        r = self.state.parameters.get("red", 0)
-        g = self.state.parameters.get("green", 0)
-        b = self.state.parameters.get("blue", 0)
+        """Generate a solid color frame"""
+        # Get color parameters with validation
+        r = np.clip(params.get("red", 0), 0, 255)
+        g = np.clip(params.get("green", 0), 0, 255)
+        b = np.clip(params.get("blue", 0), 0, 255)
+
         logger.debug(f"Generating solid pattern with color: R={r}, G={g}, B={b}")
+
+        # Create frame buffer with solid color
+        frame = np.tile([r, g, b], (self.led_count, 1)).astype(np.uint8)
+
+        # Cache the current color for modifiers
         self.state.cache_value("last_color", [r, g, b])
-        self.frame_buffer[:] = np.array([r, g, b], dtype=np.uint8)
-        return self.frame_buffer
+
+        return frame

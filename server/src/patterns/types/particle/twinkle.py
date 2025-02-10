@@ -11,9 +11,9 @@ class TwinklePattern(BasePattern):
 
     def __init__(self, led_count: int):
         super().__init__(led_count)
-        self.state.cached_data["active_twinkles"] = (
-            {}
-        )  # {position: (brightness, color)}
+        self.state.cached_data[
+            "active_twinkles"
+        ] = {}  # {position: (brightness, color)}
         self.state.cached_data["last_density"] = 0.1
         self.state.cached_data["last_fade_speed"] = 1.0
 
@@ -66,41 +66,54 @@ class TwinklePattern(BasePattern):
         ]
 
     def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
+        """Generate twinkling lights pattern"""
+        # Get parameters with validation
         active_twinkles = self.state.cached_data["active_twinkles"]
-        density = params.get("density", 0.1)
-        fade_speed = params.get("fade_speed", 1.0)
-        min_brightness = params.get("min_brightness", 0.0)
-        max_brightness = params.get("max_brightness", 1.0)
+        density = np.clip(params.get("density", 0.1), 0.01, 0.5)
+        fade_speed = np.clip(params.get("fade_speed", 1.0), 0.1, 5.0)
+        min_brightness = np.clip(params.get("min_brightness", 0.0), 0.0, 1.0)
+        max_brightness = np.clip(params.get("max_brightness", 1.0), 0.0, 1.0)
         random_color = params.get("random_color", False)
         base_color = np.array(
-            [params.get("red", 255), params.get("green", 255), params.get("blue", 255)],
+            [
+                np.clip(params.get("red", 255), 0, 255),
+                np.clip(params.get("green", 255), 0, 255),
+                np.clip(params.get("blue", 255), 0, 255),
+            ],
             dtype=np.uint8,
         )
 
+        # Clear frame buffer
         self.frame_buffer.fill(0)
 
         # Spawn new twinkles
         spawn_chance = density * self.timing.delta_time * 30
         if random.random() < spawn_chance:
             pos = random.randint(0, self.led_count - 1)
-            color = (
-                np.array([random.randint(0, 255) for _ in range(3)], dtype=np.uint8)
-                if random_color
-                else base_color
-            )
+            if random_color:
+                color = np.array(
+                    [random.randint(0, 255) for _ in range(3)], dtype=np.uint8
+                )
+            else:
+                color = base_color.copy()
             brightness = random.uniform(min_brightness, max_brightness)
             active_twinkles[pos] = (brightness, color)
 
         # Update existing twinkles
         to_remove = []
         for pos, (brightness, color) in active_twinkles.items():
+            # Update brightness with proper time scaling
             brightness -= fade_speed * self.timing.delta_time * self.timing.time_scale
             if brightness <= min_brightness:
                 to_remove.append(pos)
             else:
                 active_twinkles[pos] = (brightness, color)
-                self.frame_buffer[pos] = (color * brightness).astype(np.uint8)
+                # Apply brightness and ensure uint8 type
+                self.frame_buffer[pos] = np.clip(color * brightness, 0, 255).astype(
+                    np.uint8
+                )
 
+        # Remove faded twinkles
         for pos in to_remove:
             del active_twinkles[pos]
 

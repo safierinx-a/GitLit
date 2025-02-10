@@ -86,6 +86,14 @@ def init_app() -> FastAPI:
                 app.state.system_controller = SystemController(config)
                 control.init_controller(app.state.system_controller)
                 logger.info("System controller initialized")
+
+                # Start the system controller
+                await app.state.system_controller.start()
+                logger.info("System controller started successfully")
+
+                # Mark startup as complete
+                app.state.startup_complete = True
+
             except Exception as e:
                 logger.error(f"Failed to initialize system controller: {e}")
                 raise
@@ -112,13 +120,6 @@ def init_app() -> FastAPI:
                 except Exception as e:
                     logger.error(f"Failed to initialize audio: {e}")
                     config.features.audio_enabled = False
-
-            # Start the system
-            await app.state.system_controller.start()
-            logger.info("System controller started successfully")
-
-            # Mark startup as complete
-            app.state.startup_complete = True
 
         except Exception as e:
             logger.error(f"Failed to initialize system: {e}")

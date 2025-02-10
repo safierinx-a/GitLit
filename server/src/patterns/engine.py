@@ -9,7 +9,7 @@ from fastapi import WebSocket
 
 from ..core.websocket_manager import manager as ws_manager
 from ..core.exceptions import ValidationError
-from .config import PatternConfig
+from .config import PatternConfig, PatternState
 from .base import BasePattern, ModifiableAttribute, ParameterSpec
 from .modifiers.base import BaseModifier
 from .types import (

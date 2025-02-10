@@ -52,15 +52,37 @@ class RainbowPattern(BasePattern):
 
         # Generate hues for all LEDs at once
         positions = np.linspace(0, 1, self.led_count)
-        hues = ((positions * scale + t) % 1.0)[:, np.newaxis]
+        hues = (positions * scale + t) % 1.0
 
-        # Create saturation and value arrays
-        sats = np.full_like(hues, saturation)
-        vals = np.ones_like(hues)
+        # Create RGB array
+        frame = np.zeros((self.led_count, 3), dtype=np.uint8)
 
-        # Convert HSV to RGB
-        hsv = np.concatenate([hues, sats, vals], axis=1)
-        frame = self._hsv_to_rgb_vectorized(hsv)
+        # Convert HSV to RGB for each LED
+        for i in range(self.led_count):
+            h = hues[i]
+            s = saturation
+            v = 1.0
+
+            h_i = int(h * 6)
+            f = h * 6 - h_i
+            p = v * (1 - s)
+            q = v * (1 - f * s)
+            t = v * (1 - (1 - f) * s)
+
+            if h_i == 0:
+                r, g, b = v, t, p
+            elif h_i == 1:
+                r, g, b = q, v, p
+            elif h_i == 2:
+                r, g, b = p, v, t
+            elif h_i == 3:
+                r, g, b = p, q, v
+            elif h_i == 4:
+                r, g, b = t, p, v
+            else:
+                r, g, b = v, p, q
+
+            frame[i] = [int(r * 255), int(g * 255), int(b * 255)]
 
         return frame
 

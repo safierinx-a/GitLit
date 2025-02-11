@@ -1,10 +1,10 @@
 """Core system components for LED control"""
 
+from ..common.exceptions import ValidationError, PatternError, SystemError
 from .config import SystemConfig, SystemDefaults, FeatureFlags
 from .control import SystemController
 from .state import SystemState, SystemStateManager
 from .commands import CommandQueue, Command, CommandPriority
-from .exceptions import ValidationError, PatternError
 from .frame_manager import FrameManager, FrameMetrics
 from .timing import TimeState, TimingConstraints
 from .transactions import TransactionManager, Transaction
@@ -39,4 +39,5 @@ __all__ = [
     # Exceptions
     "ValidationError",
     "PatternError",
+    "SystemError",
 ]

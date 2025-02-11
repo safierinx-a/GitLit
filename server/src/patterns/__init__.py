@@ -1,5 +1,6 @@
 """Pattern system for LED control"""
 
+from ..common.exceptions import ValidationError, PatternError
 from .base import BasePattern, Parameter, ModifiableAttribute
 from .engine import PatternEngine
 from .config import PatternConfig
@@ -13,4 +14,6 @@ __all__ = [
     "PatternConfig",
     "CrossFadeTransition",
     "InstantTransition",
+    "ValidationError",
+    "PatternError",
 ]

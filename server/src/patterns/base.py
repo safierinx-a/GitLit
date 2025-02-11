@@ -5,7 +5,7 @@ import time
 import logging
 import numpy as np
 
-from ..core.exceptions import PatternError, ValidationError
+from ..common.exceptions import PatternError, ValidationError
 from ..core.timing import TimeState
 from .config import PatternState
 

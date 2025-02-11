@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..core.config import SystemConfig
 from ..core.control import SystemController
 from ..core.exceptions import ValidationError
+from ..core.websocket_manager import manager as ws_manager
 from . import control, websocket
 
 logger = logging.getLogger(__name__)
@@ -73,80 +74,46 @@ def init_app() -> FastAPI:
                 logger.error(f"Failed to load configuration: {e}")
                 sys.exit(1)
 
-            # Validate configuration
-            try:
-                # TODO: Add configuration validation
-                pass
-            except ValidationError as e:
-                logger.error(f"Invalid configuration: {e}")
-                sys.exit(1)
-
             # Initialize system controller
             try:
                 app.state.system_controller = SystemController(config)
-                control.init_controller(app.state.system_controller)
-                logger.info("System controller initialized")
-
-                # Start the system controller
                 await app.state.system_controller.start()
-                logger.info("System controller started successfully")
+                logger.info("System controller started")
+
+                # Start WebSocket manager
+                await ws_manager.start()
+                logger.info("WebSocket manager started")
 
                 # Mark startup as complete
                 app.state.startup_complete = True
+                logger.info("Startup complete")
 
             except Exception as e:
-                logger.error(f"Failed to initialize system controller: {e}")
+                logger.error(f"Failed to initialize system: {e}")
                 raise
 
-            # Initialize audio components only if enabled
-            if config.features.audio_enabled:
-                try:
-                    # Import audio components only when needed
-                    from ..audio.processor import AudioProcessor
-                    from .audio_stream import AudioStreamConfig
-
-                    audio_processor = AudioProcessor()
-                    audio_config = AudioStreamConfig(
-                        sample_rate=config.audio.sample_rate,
-                        channels=config.audio.channels,
-                        chunk_size=config.audio.chunk_size,
-                        format=config.audio.format,
-                    )
-                    app.state.system_controller.init_audio(audio_processor)
-                    logger.info("Audio processing initialized")
-                except ImportError:
-                    logger.warning("Audio processing modules not available")
-                    config.features.audio_enabled = False
-                except Exception as e:
-                    logger.error(f"Failed to initialize audio: {e}")
-                    config.features.audio_enabled = False
-
         except Exception as e:
-            logger.error(f"Failed to initialize system: {e}")
-            # Clean up any partially initialized components
-            if app.state.system_controller:
-                try:
-                    await app.state.system_controller.stop()
-                except Exception as cleanup_error:
-                    logger.error(f"Error during cleanup: {cleanup_error}")
-                finally:
-                    app.state.system_controller = None
-            app.state.startup_complete = False
-            raise
+            logger.error(f"Startup failed: {e}")
+            sys.exit(1)
 
     @app.on_event("shutdown")
     async def shutdown_event():
-        """Clean up resources on shutdown"""
-        if app.state.system_controller:
+        """Clean up system on shutdown"""
+        try:
             logger.info("Shutting down GitLit Control API")
-            try:
+
+            # Stop WebSocket manager
+            await ws_manager.stop()
+            logger.info("WebSocket manager stopped")
+
+            # Stop system controller
+            if app.state.system_controller:
                 await app.state.system_controller.stop()
                 logger.info("System controller stopped")
-            except Exception as e:
-                logger.error(f"Error during shutdown: {e}")
-            finally:
-                app.state.system_controller = None
-                app.state.startup_complete = False
+
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+            raise
 
     @app.get("/health")
     async def health_check():

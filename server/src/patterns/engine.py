@@ -1,16 +1,18 @@
 import logging
-from dataclasses import asdict
-from typing import Any, Dict, List, Optional, Type
 import time
 import asyncio
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Optional, Type, Set
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 from fastapi import WebSocket
 
 from ..core.websocket_manager import manager as ws_manager
-from ..core.exceptions import ValidationError
+from ..core.exceptions import ValidationError, PatternError
+from ..core.timing import TimeState, TimingConstraints
 from .config import PatternConfig, PatternState
-from .base import BasePattern, ModifiableAttribute, ParameterSpec
+from .base import BasePattern, ModifiableAttribute, ParameterSpec, PatternMetrics
 from .modifiers.base import BaseModifier
 from .types import (
     BreathePattern,
@@ -23,763 +25,399 @@ from .types import (
     TwinklePattern,
     WavePattern,
 )
+from .transitions import CrossFadeTransition, InstantTransition, Transition
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class EngineMetrics:
+    """Pattern engine performance metrics"""
+
+    current_pattern: str = ""
+    pattern_changes: int = 0
+    total_frames: int = 0
+    dropped_frames: int = 0
+    transition_count: int = 0
+    error_count: int = 0
+    last_error: str = ""
+    pattern_metrics: Dict[str, PatternMetrics] = field(default_factory=dict)
+
+    def record_error(self, error: str) -> None:
+        """Record an error occurrence"""
+        self.error_count += 1
+        self.last_error = error
+        logger.error(f"Pattern engine error: {error}")
+
+
+@dataclass
+class TransitionState:
+    """Transition state tracking"""
+
+    is_active: bool = False
+    progress: float = 0.0  # 0-1
+    source_pattern: Optional[str] = None
+    target_pattern: Optional[str] = None
+    transition: Optional[Transition] = None
+    start_time: float = 0.0
+    duration_ms: float = 0.0
+
+
 class PatternEngine:
-    """Manages pattern generation and validation"""
+    """Manages patterns with improved state handling"""
 
-    def __init__(self, num_pixels: int):
-        logger.info(f"Initializing pattern engine with {num_pixels} LEDs")
-        self._num_pixels = num_pixels
-        self._patterns: Dict[str, Type[BasePattern]] = {}
-        self._pattern_instances: Dict[str, BasePattern] = {}
-        self._modifiers: Dict[str, Type[BaseModifier]] = {}
+    def __init__(self, num_leds: int):
+        """Initialize pattern engine"""
+        self.num_leds = num_leds
+        self.patterns: Dict[str, Type[BasePattern]] = {}
+        self.pattern_instances: Dict[str, BasePattern] = {}
         self.current_pattern: Optional[BasePattern] = None
-        self.current_config: Optional[PatternConfig] = None
-        self.state = PatternState()
+        self.previous_pattern: Optional[BasePattern] = None
 
-        # Initialize active modifiers
-        self.active_modifiers: Dict[str, BaseModifier] = {}
+        # State management
+        self.time_state = TimeState()
+        self.transition_state = TransitionState()
+        self.metrics = EngineMetrics()
 
-        self._register_patterns()
-        self._register_modifiers()
+        # Frame management
+        self.frame_buffer = np.zeros((num_leds, 3), dtype=np.uint8)
+        self._last_valid_frame = None
 
-        # Start heartbeat
-        asyncio.create_task(self._send_heartbeat())
+        # Timing constraints
+        self.timing = TimingConstraints.from_config(num_leds)
 
-    def _register_patterns(self) -> None:
-        """Register available patterns with automatic name generation"""
-        # Define pattern categories and their patterns
-        pattern_categories = {
-            "static": [
-                SolidPattern,
-                GradientPattern,
-            ],
-            "moving": [
-                WavePattern,
-                RainbowPattern,
-                ChasePattern,
-                ScanPattern,
-            ],
-            "particle": [
-                TwinklePattern,
-                MeteorPattern,
-                BreathePattern,
-            ],
+        # Initialize transitions
+        self._init_transitions()
+
+    def _init_transitions(self) -> None:
+        """Initialize available transitions"""
+        self.transitions = {
+            "crossfade": CrossFadeTransition(),
+            "instant": InstantTransition(),
         }
+        self.default_transition = "crossfade"
+        self.default_transition_duration_ms = 500.0
 
-        # Register patterns in order by category
-        for category, patterns in sorted(pattern_categories.items()):
-            logger.info(f"Registering {category} patterns...")
-            for pattern_class in sorted(patterns, key=lambda x: x.__name__):
-                name = pattern_class.__name__.lower().replace("pattern", "")
-                pattern = pattern_class(self._num_pixels)
-                self._patterns[name] = pattern_class
-                self._pattern_instances[name] = pattern
-                logger.info(f"Registered {category} pattern: {name}")
-
-    def _register_modifiers(self) -> None:
-        """Register available modifiers"""
-        # Import modifiers here to avoid circular imports
-        from .modifiers import AVAILABLE_MODIFIERS
-
-        self._modifiers = {
-            mod.__name__.lower().replace("modifier", ""): mod
-            for mod in AVAILABLE_MODIFIERS
-        }
-        logger.info(f"Registered {len(self._modifiers)} modifiers")
-
-    async def _send_heartbeat(self):
-        """Send periodic heartbeat to clients"""
-        backoff = 1
-        max_backoff = 30
-        while True:
-            try:
-                await ws_manager.broadcast({"type": "heartbeat"})
-                await asyncio.sleep(5)  # Every 5 seconds
-                backoff = 1  # Reset backoff on success
-            except asyncio.CancelledError:
-                logger.info("Heartbeat task cancelled")
-                break
-            except Exception as e:
-                logger.error(f"Error sending heartbeat: {e}")
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, max_backoff)  # Exponential backoff
-
-    async def handle_client_connect(self, websocket: WebSocket) -> None:
-        """Send current pattern state when client connects"""
+    async def register_pattern(self, pattern_class: Type[BasePattern]) -> None:
+        """Register a pattern class"""
         try:
-            if self.current_pattern and self.current_config:
-                # Generate current frame
-                current_time = time.time() * 1000
-                frame = self.current_pattern.generate(
-                    current_time, self.current_config.parameters
-                )
+            # Create test instance to validate pattern
+            test_instance = pattern_class(self.num_leds)
+            test_frame = await self._generate_test_frame(test_instance)
 
-                # Apply any active modifiers
-                if self.current_config.modifiers:
-                    for modifier_config in self.current_config.modifiers:
-                        if modifier_config.get("enabled", True):
-                            modifier = self._modifiers.get(modifier_config["name"])
-                            if modifier:
-                                frame = modifier.apply(
-                                    frame, modifier_config.get("parameters", {})
-                                )
+            if test_frame is not None:
+                name = pattern_class.name.lower()
+                self.patterns[name] = pattern_class
+                self.pattern_instances[name] = test_instance
+                logger.info(f"Registered pattern: {name}")
+            else:
+                raise PatternError("Pattern failed to generate test frame")
 
-                # Send current state
-                await websocket.send_json(
-                    {
-                        "type": "pattern",
-                        "data": {
-                            "frame": frame.tolist(),
-                            "config": asdict(self.current_config),
-                            "timestamp": current_time,
-                        },
-                    }
-                )
-                logger.info("Sent current pattern state to new client")
         except Exception as e:
-            logger.error(f"Error sending initial state to client: {e}")
+            logger.error(f"Failed to register pattern {pattern_class.__name__}: {e}")
+            self.metrics.record_error(f"Pattern registration failed: {str(e)}")
 
-    async def update(self, time_ms: float) -> Optional[np.ndarray]:
-        """Generate pattern frame and send via WebSocket"""
-        if not self.current_pattern or not self.current_config:
-            logger.warning("No active pattern, skipping frame generation")
+    async def _generate_test_frame(self, pattern: BasePattern) -> Optional[np.ndarray]:
+        """Generate a test frame from a pattern"""
+        try:
+            frame = await pattern.generate(time.perf_counter() * 1000)
+            if frame is None or frame.shape != (self.num_leds, 3):
+                raise PatternError("Invalid frame generated")
+            return frame
+        except Exception as e:
+            logger.error(f"Test frame generation failed: {e}")
             return None
 
+    async def set_pattern(
+        self,
+        pattern_name: str,
+        parameters: Optional[Dict[str, Any]] = None,
+        transition: Optional[str] = None,
+        duration_ms: Optional[float] = None,
+    ) -> None:
+        """Set active pattern with transition"""
         try:
-            logger.debug(
-                f"Generating pattern: {self.current_config.pattern_type} "
-                f"with params: {self.current_config.parameters}"
-            )
+            # Validate pattern exists
+            if pattern_name not in self.patterns:
+                raise ValidationError(f"Unknown pattern: {pattern_name}")
 
-            # Generate base pattern with current config parameters
-            frame = self.current_pattern.generate(
-                time_ms, self.current_config.parameters
-            )
+            # Get or create pattern instance
+            new_pattern = self.pattern_instances.get(pattern_name)
+            if new_pattern is None:
+                new_pattern = self.patterns[pattern_name](self.num_leds)
+                self.pattern_instances[pattern_name] = new_pattern
 
-            if frame is None:
-                logger.error("Pattern generated None frame")
-                return None
+            # Update parameters if provided
+            if parameters:
+                await new_pattern.update_parameters(parameters)
 
-            # Apply modifiers if configured
-            if self.current_config.modifiers:
-                for modifier_config in self.current_config.modifiers:
-                    if modifier_config.get("enabled", True):
-                        modifier = self._modifiers.get(modifier_config["name"])
-                        if modifier:
-                            frame = modifier.apply(
-                                frame, modifier_config.get("parameters", {})
-                            )
+            # Setup transition
+            if self.current_pattern is not None:
+                transition_name = transition or self.default_transition
+                transition_obj = self.transitions.get(transition_name)
+                if transition_obj is None:
+                    logger.warning(
+                        f"Unknown transition {transition_name}, using default"
+                    )
+                    transition_obj = self.transitions[self.default_transition]
 
-            # Ensure frame is valid
-            if not isinstance(frame, np.ndarray):
-                logger.error(f"Invalid frame type: {type(frame)}")
-                return None
-
-            if frame.shape != (self._num_pixels, 3):
-                logger.error(
-                    f"Invalid frame shape: {frame.shape}, expected ({self._num_pixels}, 3)"
+                self.transition_state.is_active = True
+                self.transition_state.progress = 0.0
+                self.transition_state.source_pattern = self.current_pattern.name
+                self.transition_state.target_pattern = pattern_name
+                self.transition_state.transition = transition_obj
+                self.transition_state.start_time = time.perf_counter()
+                self.transition_state.duration_ms = (
+                    duration_ms or self.default_transition_duration_ms
                 )
-                return None
 
-            # Ensure frame values are in valid range
-            frame = np.clip(frame, 0, 255).astype(np.uint8)
+            # Update state
+            self.previous_pattern = self.current_pattern
+            self.current_pattern = new_pattern
+            self.metrics.pattern_changes += 1
+            self.metrics.current_pattern = pattern_name
 
-            # Log frame statistics
-            nonzero_pixels = np.count_nonzero(np.any(frame > 0, axis=1))
-            if nonzero_pixels == 0:
-                logger.warning("Generated frame contains all black pixels!")
-                logger.debug(
-                    f"Current pattern state: {self.current_pattern.state.parameters}"
-                )
-                logger.debug(
-                    f"Current config parameters: {self.current_config.parameters}"
-                )
+            logger.info(f"Set pattern to {pattern_name}")
+
+        except Exception as e:
+            self.metrics.record_error(f"Pattern change failed: {str(e)}")
+            raise
+
+    async def update_parameters(self, parameters: Dict[str, Any]) -> None:
+        """Update current pattern parameters"""
+        if self.current_pattern is None:
+            raise ValidationError("No active pattern")
+
+        try:
+            await self.current_pattern.update_parameters(parameters)
+        except Exception as e:
+            self.metrics.record_error(f"Parameter update failed: {str(e)}")
+            raise
+
+    async def generate_frame(self, time_ms: float) -> Optional[np.ndarray]:
+        """Generate frame with transition handling"""
+        try:
+            if self.current_pattern is None:
+                return self.frame_buffer
+
+            # Update timing
+            self.time_state.update()
+
+            # Handle transition
+            if self.transition_state.is_active:
+                frame = await self._handle_transition(time_ms)
             else:
-                logger.debug(
-                    f"Frame stats - Shape: {frame.shape}, Range: [{frame.min()}, {frame.max()}], "
-                    f"Active pixels: {nonzero_pixels}/{self._num_pixels}, "
-                    f"First non-zero pixel: {frame[frame.any(axis=1)][0] if nonzero_pixels > 0 else 'None'}"
-                )
+                frame = await self.current_pattern.generate(time_ms)
 
-            # Send frame via WebSocket
-            try:
-                message = {
-                    "type": "pattern",
-                    "data": {
-                        "frame": frame.tolist(),
-                        "timestamp": time_ms,
-                        "pattern_type": self.current_config.pattern_type,
-                        "stats": {
-                            "active_pixels": int(nonzero_pixels),
-                            "max_value": int(frame.max()),
-                            "min_value": int(frame.min()),
-                        },
-                    },
-                }
-                await ws_manager.broadcast(message)
-                logger.debug(
-                    f"Frame broadcast complete for {self.current_config.pattern_type}"
+            # Validate and store frame
+            if frame is not None:
+                if frame.shape != (self.num_leds, 3):
+                    raise PatternError(f"Invalid frame shape: {frame.shape}")
+                self._last_valid_frame = frame.copy()
+                self.frame_buffer = frame
+                self.metrics.total_frames += 1
+            else:
+                self.metrics.dropped_frames += 1
+                frame = (
+                    self._last_valid_frame
+                    if self._last_valid_frame is not None
+                    else self.frame_buffer
                 )
-            except Exception as e:
-                logger.error(f"Failed to send frame: {e}")
 
             return frame
 
         except Exception as e:
-            logger.error(f"Pattern update error: {e}")
-            try:
-                error_msg = str(e)
-                await ws_manager.broadcast(
-                    {
-                        "type": "error",
-                        "data": {"message": f"Pattern update failed: {error_msg}"},
-                    }
+            self.metrics.record_error(f"Frame generation failed: {str(e)}")
+            self.metrics.dropped_frames += 1
+            return (
+                self._last_valid_frame
+                if self._last_valid_frame is not None
+                else self.frame_buffer
+            )
+
+    async def _handle_transition(self, time_ms: float) -> Optional[np.ndarray]:
+        """Handle pattern transition"""
+        try:
+            # Calculate transition progress
+            elapsed = time.perf_counter() - self.transition_state.start_time
+            progress = min(1.0, elapsed * 1000 / self.transition_state.duration_ms)
+            self.transition_state.progress = progress
+
+            # Generate frames from both patterns
+            source_frame = (
+                await self.previous_pattern.generate(time_ms)
+                if self.previous_pattern is not None
+                else None
+            )
+            target_frame = await self.current_pattern.generate(time_ms)
+
+            # Apply transition
+            if source_frame is not None and target_frame is not None:
+                frame = self.transition_state.transition.apply(
+                    source_frame, target_frame, progress
                 )
-            except Exception as broadcast_error:
-                logger.error(f"Failed to broadcast error: {broadcast_error}")
+            else:
+                frame = target_frame if target_frame is not None else source_frame
+
+            # Check if transition is complete
+            if progress >= 1.0:
+                self.transition_state.is_active = False
+                self.metrics.transition_count += 1
+                logger.debug("Transition complete")
+
+            return frame
+
+        except Exception as e:
+            self.metrics.record_error(f"Transition failed: {str(e)}")
+            self.transition_state.is_active = False
             return None
 
+    def get_state(self) -> Dict[str, Any]:
+        """Get engine state"""
+        return {
+            "current_pattern": self.current_pattern.name
+            if self.current_pattern
+            else None,
+            "available_patterns": list(self.patterns.keys()),
+            "transition": {
+                "active": self.transition_state.is_active,
+                "progress": self.transition_state.progress,
+                "source": self.transition_state.source_pattern,
+                "target": self.transition_state.target_pattern,
+                "duration_ms": self.transition_state.duration_ms,
+            },
+            "metrics": {
+                "total_frames": self.metrics.total_frames,
+                "dropped_frames": self.metrics.dropped_frames,
+                "pattern_changes": self.metrics.pattern_changes,
+                "transition_count": self.metrics.transition_count,
+                "error_count": self.metrics.error_count,
+                "last_error": self.metrics.last_error,
+            },
+            "timing": self.time_state.get_metrics(),
+        }
+
     async def cleanup(self) -> None:
-        """Clean up resources"""
-        try:
-            # Clear current pattern
-            if self.current_pattern:
-                self.current_pattern.reset()
-            self.current_pattern = None
-            self.current_config = None
+        """Cleanup engine resources"""
+        self.current_pattern = None
+        self.previous_pattern = None
+        self.pattern_instances.clear()
+        self.patterns.clear()
+        self.frame_buffer.fill(0)
+        self._last_valid_frame = None
+        logger.info("Pattern engine cleaned up")
 
-            # Clear pattern instances
-            self._pattern_instances.clear()
-            self._patterns.clear()
-            self._modifiers.clear()
+    async def get_available_patterns(self) -> List[Dict[str, Any]]:
+        """Get available pattern definitions"""
+        patterns = []
+        for name, pattern_class in self.patterns.items():
+            try:
+                # Create test instance to validate pattern
+                test_instance = pattern_class(self.num_leds)
 
-            # Send clear command via WebSocket
-            await ws_manager.broadcast({"type": "clear"})
-
-        except Exception as e:
-            logger.error(f"Cleanup error: {e}")
-
-    def cleanup_sync(self) -> None:
-        """Synchronous cleanup for use in __del__"""
-        try:
-            # Clear current pattern
-            if self.current_pattern:
-                self.current_pattern.reset()
-            self.current_pattern = None
-            self.current_config = None
-
-            # Clear pattern instances
-            self._pattern_instances.clear()
-            self._patterns.clear()
-            self._modifiers.clear()
-
-            # Note: We can't do WebSocket broadcast in sync cleanup
-        except Exception as e:
-            logger.error(f"Cleanup error: {e}")
-
-    def __del__(self) -> None:
-        """Ensure cleanup on deletion"""
-        self.cleanup_sync()  # Use sync version for __del__
-
-    async def validate_parameters(
-        self, pattern_class: Type[BasePattern], params: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Validate and normalize pattern parameters"""
-        validated = {}
-        param_specs = {p.name: p for p in pattern_class.parameters}
-
-        # Check for required parameters
-        for name, spec in param_specs.items():
-            if name not in params:
-                if spec.default is not None:
-                    validated[name] = (
-                        int(spec.default) if spec.type == int else spec.default
-                    )
-                else:
-                    raise ValidationError(f"Missing required parameter: {name}")
-
-        # Validate provided parameters
-        for name, value in params.items():
-            if name not in param_specs:
-                logger.warning(f"Unknown parameter: {name}")
-                continue
-
-            spec = param_specs[name]
-
-            # Convert numpy types to Python native types
-            if hasattr(value, "item"):
-                value = value.item()
-
-            # Type checking and conversion
-            if not isinstance(value, spec.type):
-                try:
-                    value = spec.type(value)
-                except (ValueError, TypeError):
-                    raise ValidationError(
-                        f"Invalid type for parameter {name}: expected {spec.type.__name__}, got {type(value).__name__}"
-                    )
-
-            # Range validation
-            if spec.min_value is not None and value < spec.min_value:
-                value = spec.min_value
-                logger.warning(
-                    f"Clamping parameter {name} to minimum value {spec.min_value}"
-                )
-            if spec.max_value is not None and value > spec.max_value:
-                value = spec.max_value
-                logger.warning(
-                    f"Clamping parameter {name} to maximum value {spec.max_value}"
-                )
-
-            validated[name] = value
-
-        return validated
-
-    def validate_modifier_config(
-        self, pattern_class: Type[BasePattern], modifier_config: Dict[str, Any]
-    ) -> None:
-        """Validate modifier configuration"""
-        if "name" not in modifier_config:
-            raise ValidationError("Modifier must have a name")
-        if "hook" not in modifier_config:
-            raise ValidationError("Modifier must specify a hook")
-
-        # Check if hook exists
-        valid_hooks = {h.name: h for h in pattern_class.modifiable_attributes}
-        if modifier_config["hook"] not in valid_hooks:
-            raise ValidationError(f"Invalid modifier hook: {modifier_config['hook']}")
-
-        hook = valid_hooks[modifier_config["hook"]]
-
-        # Check if modifier is supported for this hook
-        if modifier_config["name"] not in hook.supported_modifiers:
-            raise ValidationError(
-                f"Modifier {modifier_config['name']} not supported "
-                f"for hook {modifier_config['hook']}"
-            )
-
-        # Validate modifier parameters
-        if "parameters" in modifier_config:
-            self.validate_parameters(
-                hook.parameter_specs, modifier_config["parameters"]
-            )
-
-    async def set_pattern(self, config: PatternConfig) -> None:
-        """Set the current pattern with configuration"""
-        try:
-            # Get pattern instance from registered instances
-            pattern = self._pattern_instances.get(config.pattern_type)
-            if not pattern:
-                logger.error(
-                    f"Pattern type {config.pattern_type} not found in registered instances"
-                )
-                raise ValidationError(f"Unknown pattern type: {config.pattern_type}")
-
-            logger.info(
-                f"Setting pattern {config.pattern_type} with raw params: {config.parameters}"
-            )
-
-            # Validate parameters
-            validated_params = await self.validate_parameters(
-                pattern.__class__, config.parameters
-            )
-            logger.info(f"Validated parameters: {validated_params}")
-
-            # Store current pattern's parameters if it exists
-            old_params = {}
-            if self.current_pattern:
-                old_params = {
-                    k: v
-                    for k, v in self.current_pattern.state.parameters.items()
-                    if isinstance(v, (int, float, str, bool))
+                # Get pattern metadata
+                pattern_info = {
+                    "name": name,
+                    "description": pattern_class.description,
+                    "parameters": {},
+                    "category": self._determine_pattern_category(name),
+                    "supports_audio": hasattr(pattern_class, "process_audio"),
+                    "supports_transitions": True,  # All patterns support transitions
                 }
 
-            # Update pattern and config
-            self.current_pattern = pattern
-            self.current_config = PatternConfig(
-                pattern_type=config.pattern_type,
-                parameters=validated_params.copy(),
-                modifiers=config.modifiers,
-            )
+                # Get parameter specifications
+                for param in pattern_class.parameters:
+                    pattern_info["parameters"][param.name] = {
+                        "type": param.type.__name__,
+                        "default": param.default,
+                        "min_value": param.min_value,
+                        "max_value": param.max_value,
+                        "description": param.description,
+                        "units": param.units,
+                    }
 
-            # Reset pattern while preserving parameters
-            pattern.reset()
-
-            # Initialize pattern state with validated parameters
-            pattern.state.parameters = validated_params.copy()
-
-            # Merge old parameters with new ones, new ones take precedence
-            pattern.state.parameters.update(validated_params)
-
-            # Initialize pattern with a test frame
-            try:
-                current_time = asyncio.get_event_loop().time() * 1000
-
-                # Generate test frame using normal generation path
-                pattern.before_generate(current_time, validated_params)
-                test_frame = pattern.generate(current_time, validated_params)
-
-                if test_frame is None:
-                    raise ValidationError("Pattern generated None frame")
-
-                # Log detailed frame information
-                nonzero_pixels = np.count_nonzero(np.any(test_frame > 0, axis=1))
-                first_nonzero = None
-                if nonzero_pixels > 0:
-                    first_nonzero = test_frame[np.any(test_frame > 0, axis=1)][0]
-
-                logger.info(
-                    f"Test frame generated:"
-                    f"\n  - Shape: {test_frame.shape}"
-                    f"\n  - Range: [{test_frame.min()}, {test_frame.max()}]"
-                    f"\n  - Non-zero pixels: {nonzero_pixels}/{self._num_pixels}"
-                    f"\n  - First non-zero pixel: {first_nonzero}"
-                    f"\n  - Current parameters: {pattern.state.parameters}"
-                )
-
-                if nonzero_pixels == 0:
-                    logger.warning(
-                        f"Test frame contains all black pixels with parameters: {pattern.state.parameters}"
-                    )
+                patterns.append(pattern_info)
 
             except Exception as e:
-                logger.error(f"Failed to generate test frame: {e}")
-                raise
-
-            logger.info(
-                f"Successfully set pattern to {config.pattern_type} with params: {pattern.state.parameters}"
-            )
-
-        except Exception as e:
-            logger.error(f"Error setting pattern: {e}")
-            raise
-
-    def validate_pattern_state(self, pattern: BasePattern) -> None:
-        """Complete pattern state validation"""
-        if not pattern.state:
-            raise ValidationError("Pattern missing state")
-
-        # Validate required state attributes
-        required_attrs = [
-            "frame_count",
-            "last_frame_time",
-            "delta_time",
-            "parameters",
-            "cached_data",
-            "is_transitioning",
-            "frame_times",
-            "avg_frame_time",
-        ]
-
-        for attr in required_attrs:
-            if not hasattr(pattern.state, attr):
-                raise ValidationError(f"Pattern state missing {attr}")
-
-        # Validate timing values
-        if pattern.state.delta_time < 0:
-            raise ValidationError("Invalid negative delta_time")
-        if pattern.state.frame_count < 0:
-            raise ValidationError("Invalid negative frame_count")
-
-        # Validate cached data structure
-        if not isinstance(pattern.state.cached_data, dict):
-            raise ValidationError("Pattern cached_data must be a dictionary")
-
-        # Validate performance metrics
-        if not isinstance(pattern.state.frame_times, list):
-            raise ValidationError("Pattern frame_times must be a list")
-
-        # Validate parameters
-        if not isinstance(pattern.state.parameters, dict):
-            raise ValidationError("Pattern parameters must be a dictionary")
-
-    def _load_patterns(self) -> Dict[str, Type[BasePattern]]:
-        """Load available patterns"""
-        # TODO: Implement dynamic pattern loading
-        return {}
-
-    def _load_modifiers(self) -> Dict[str, Type[BaseModifier]]:
-        """Load available modifiers"""
-        # TODO: Implement dynamic modifier loading
-        return {}
-
-    def get_patterns_by_category(self) -> Dict[str, List[str]]:
-        """Get available patterns organized by category"""
-        categories = {"static": [], "moving": [], "particle": []}
-
-        # Categorize patterns
-        for name, pattern_cls in self._patterns.items():
-            if issubclass(pattern_cls, (SolidPattern, GradientPattern)):
-                categories["static"].append(name)
-            elif issubclass(
-                pattern_cls, (WavePattern, RainbowPattern, ChasePattern, ScanPattern)
-            ):
-                categories["moving"].append(name)
-            elif issubclass(
-                pattern_cls, (TwinklePattern, MeteorPattern, BreathePattern)
-            ):
-                categories["particle"].append(name)
-
-        # Sort patterns within each category
-        for category in categories:
-            categories[category].sort()
-
-        return categories
-
-    def get_available_patterns(self) -> List[Dict[str, Any]]:
-        """Get list of available patterns with metadata"""
-        patterns_by_category = self.get_patterns_by_category()
-        patterns = []
-
-        # Add patterns in category order
-        for category in sorted(patterns_by_category.keys()):
-            for name in sorted(patterns_by_category[category]):
-                pattern_cls = self._patterns[name]
-                patterns.append(
-                    {
-                        "name": name,
-                        "category": category,
-                        "description": pattern_cls.__doc__ or "",
-                        "parameters": self._get_parameters_metadata(pattern_cls),
-                        "supported_modifiers": self._get_supported_modifiers(
-                            pattern_cls
-                        ),
-                    }
-                )
+                logger.error(f"Failed to get pattern info for {name}: {e}")
+                continue
 
         return patterns
 
-    def get_pattern_metadata(self, pattern_name: str) -> Dict[str, Any]:
-        """Get metadata for a specific pattern"""
-        if pattern_name not in self._patterns:
-            raise KeyError(f"Pattern '{pattern_name}' not found")
+    def _determine_pattern_category(self, pattern_name: str) -> str:
+        """Determine pattern category based on name"""
+        static_patterns = {"solid", "gradient"}
+        moving_patterns = {"wave", "rainbow", "chase", "scan"}
+        particle_patterns = {"twinkle", "meteor", "breathe"}
 
-        pattern_cls = self._patterns[pattern_name]
-        return {
-            "name": pattern_name,
-            "description": pattern_cls.__doc__ or "",
-            "parameters": self._get_parameters_metadata(pattern_cls),
-            "supported_modifiers": self._get_supported_modifiers(pattern_cls),
-        }
+        if pattern_name in static_patterns:
+            return "static"
+        elif pattern_name in moving_patterns:
+            return "moving"
+        elif pattern_name in particle_patterns:
+            return "particle"
+        return "other"
 
-    def get_available_modifiers(self) -> List[Dict[str, Any]]:
-        """Get list of available modifiers with metadata"""
-        return [
-            {
-                "name": name,
-                "description": modifier_cls.__doc__ or "",
-                "parameters": self._get_parameters_metadata(modifier_cls),
-                "supported_audio_metrics": self._get_supported_audio_metrics(
-                    modifier_cls
-                ),
-            }
-            for name, modifier_cls in self._modifiers.items()
-        ]
-
-    def get_modifier_metadata(self, modifier_name: str) -> Dict[str, Any]:
-        """Get metadata for a specific modifier"""
-        if modifier_name not in self._modifiers:
-            raise KeyError(f"Modifier '{modifier_name}' not found")
-
-        modifier_cls = self._modifiers[modifier_name]
-        return {
-            "name": modifier_name,
-            "description": modifier_cls.__doc__ or "",
-            "parameters": self._get_parameters_metadata(modifier_cls),
-            "supported_audio_metrics": self._get_supported_audio_metrics(modifier_cls),
-        }
-
-    def _get_parameters_metadata(self, cls: Type) -> Dict[str, Dict[str, Any]]:
-        """Get metadata for a class's parameters"""
-        if not hasattr(cls, "PARAMETERS"):
-            return {}
-
-        metadata = {}
-        for name, param in cls.PARAMETERS.items():
-            meta = {
-                "type": param.get("type", "float"),
-                "description": param.get("description", ""),
-                "default": param.get("default"),
-            }
-
-            if "min" in param:
-                meta["min"] = param["min"]
-            if "max" in param:
-                meta["max"] = param["max"]
-
-            metadata[name] = meta
-
-        return metadata
-
-    def _get_supported_modifiers(self, pattern_cls: Type[BasePattern]) -> List[str]:
-        """Get list of modifiers supported by a pattern"""
-        if not hasattr(pattern_cls, "SUPPORTED_MODIFIERS"):
-            return []
-        return pattern_cls.SUPPORTED_MODIFIERS
-
-    def _get_supported_audio_metrics(
-        self, modifier_cls: Type[BaseModifier]
-    ) -> Optional[List[str]]:
-        """Get list of audio metrics supported by a modifier"""
-        if not hasattr(modifier_cls, "SUPPORTED_AUDIO_METRICS"):
+    async def get_pattern_info(self, pattern_name: str) -> Optional[Dict[str, Any]]:
+        """Get detailed information about a specific pattern"""
+        if pattern_name not in self.patterns:
             return None
-        return modifier_cls.SUPPORTED_AUDIO_METRICS
 
-    async def reset_modifiers(self) -> None:
-        """Reset all active modifiers to their default state"""
+        pattern_class = self.patterns[pattern_name]
         try:
-            if not self.current_pattern:
-                return
+            test_instance = pattern_class(self.num_leds)
 
-            # Clear modifiers from current config
-            if self.current_config:
-                self.current_config.modifiers = None
-
-            # Clear active modifiers
-            self._modifiers.clear()
-
-            # Regenerate current frame
-            await self.update(time.time() * 1000)
-
-            logger.info("All modifiers reset successfully")
+            return {
+                "name": pattern_name,
+                "description": pattern_class.description,
+                "parameters": {
+                    param.name: {
+                        "type": param.type.__name__,
+                        "default": param.default,
+                        "min_value": param.min_value,
+                        "max_value": param.max_value,
+                        "description": param.description,
+                        "units": param.units,
+                    }
+                    for param in pattern_class.parameters
+                },
+                "category": self._determine_pattern_category(pattern_name),
+                "supports_audio": hasattr(pattern_class, "process_audio"),
+                "supports_transitions": True,
+                "state": test_instance.get_state()
+                if hasattr(test_instance, "get_state")
+                else None,
+            }
         except Exception as e:
-            logger.error(f"Error resetting modifiers: {e}")
-            raise
+            logger.error(f"Failed to get pattern info for {pattern_name}: {e}")
+            return None
 
-    def update_modifier_parameter(
-        self, modifier_name: str, parameter: str, value: Any
-    ) -> None:
-        """Update a specific parameter of an active modifier"""
-        try:
-            if not self.current_config or not self.current_config.modifiers:
-                return
-
-            for modifier in self.current_config.modifiers:
-                if modifier["name"] == modifier_name:
-                    if "parameters" not in modifier:
-                        modifier["parameters"] = {}
-                    modifier["parameters"][parameter] = value
-                    break
-
-            logger.debug(
-                f"Updated modifier {modifier_name} parameter {parameter} = {value}"
-            )
-        except Exception as e:
-            logger.error(f"Error updating modifier parameter: {e}")
-            raise
-
-    async def add_modifier(self, name: str, params: Dict[str, Any]) -> None:
-        """Add a modifier to the current pattern"""
+    def get_current_pattern_state(self) -> Dict[str, Any]:
+        """Get current pattern state"""
         if not self.current_pattern:
-            raise ValidationError("No active pattern")
+            return {
+                "active": False,
+                "name": None,
+                "parameters": {},
+                "frame_count": 0,
+                "transition": {
+                    "active": False,
+                    "progress": 0,
+                    "source": None,
+                    "target": None,
+                },
+            }
 
-        if name not in self._modifiers:
-            raise ValidationError(f"Unknown modifier: {name}")
-
-        # Create modifier instance
-        modifier_class = self._modifiers[name]
-        modifier = modifier_class()
-
-        # Validate parameters
-        validated_params = self.validate_parameters(modifier_class, params)
-
-        # Add to current config
-        if not self.current_config.modifiers:
-            self.current_config.modifiers = []
-
-        self.current_config.modifiers.append(
-            {"name": name, "parameters": validated_params, "enabled": True}
-        )
-
-        # Add to active modifiers
-        self.active_modifiers[name] = modifier
-        logger.info(f"Added modifier {name} with params: {validated_params}")
-
-    async def remove_modifier(self, name: str) -> None:
-        """Remove a modifier from the current pattern"""
-        if not self.current_pattern:
-            raise ValidationError("No active pattern")
-
-        if name not in self.active_modifiers:
-            raise ValidationError(f"Modifier not active: {name}")
-
-        # Remove from current config
-        if self.current_config.modifiers:
-            self.current_config.modifiers = [
-                m for m in self.current_config.modifiers if m["name"] != name
-            ]
-
-        # Remove from active modifiers
-        del self.active_modifiers[name]
-        logger.info(f"Removed modifier {name}")
-
-    async def update_modifier(self, name: str, params: Dict[str, Any]) -> None:
-        """Update modifier parameters"""
-        if not self.current_pattern:
-            raise ValidationError("No active pattern")
-
-        if name not in self.active_modifiers:
-            raise ValidationError(f"Modifier not active: {name}")
-
-        # Validate parameters
-        modifier_class = self._modifiers[name]
-        validated_params = self.validate_parameters(modifier_class, params)
-
-        # Update in current config
-        if self.current_config.modifiers:
-            for modifier in self.current_config.modifiers:
-                if modifier["name"] == name:
-                    modifier["parameters"].update(validated_params)
-                    break
-
-        logger.info(f"Updated modifier {name} with params: {validated_params}")
-
-    def validate_modifier_parameters(
-        self, modifier_class: Type[BaseModifier], params: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Validate and normalize modifier parameters"""
-        validated = {}
-        param_specs = {p.name: p for p in modifier_class.parameters}
-
-        # Check for required parameters
-        for name, spec in param_specs.items():
-            if name not in params:
-                if spec.default is not None:
-                    validated[name] = spec.default
-                else:
-                    raise ValidationError(f"Missing required parameter: {name}")
-
-        # Validate provided parameters
-        for name, value in params.items():
-            if name not in param_specs:
-                logger.warning(f"Unknown modifier parameter: {name}")
-                continue
-
-            spec = param_specs[name]
-
-            # Type checking
-            if not isinstance(value, spec.type):
-                try:
-                    value = spec.type(value)
-                except (ValueError, TypeError):
-                    raise ValidationError(
-                        f"Parameter {name} must be of type {spec.type.__name__}"
-                    )
-
-            # Range checking
-            if spec.min_value is not None and value < spec.min_value:
-                raise ValidationError(
-                    f"Parameter {name} below minimum value {spec.min_value}"
-                )
-            if spec.max_value is not None and value > spec.max_value:
-                raise ValidationError(
-                    f"Parameter {name} above maximum value {spec.max_value}"
-                )
-
-            validated[name] = value
-
-        return validated
+        return {
+            "active": True,
+            "name": self.current_pattern.name,
+            "parameters": self.current_pattern.state.parameters,
+            "frame_count": self.current_pattern.state.frame_count,
+            "transition": {
+                "active": self.transition_state.is_active,
+                "progress": self.transition_state.progress,
+                "source": self.transition_state.source_pattern,
+                "target": self.transition_state.target_pattern,
+            },
+            "metrics": self.current_pattern.state.metrics.get_metrics(),
+        }

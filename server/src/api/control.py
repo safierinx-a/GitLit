@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Union
 from enum import Enum
 import logging
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field, validator
 
 from ..core.control import SystemController
@@ -24,6 +24,7 @@ from .models import (
     ModifierCategory,
     ParameterType,
     ParameterSpec,
+    TransitionRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,29 +55,35 @@ def _check_controller():
         )
 
 
-def _register_patterns():
-    """Register available patterns using their specs"""
-    patterns = _controller.pattern_engine.get_available_patterns()
-    for pattern in patterns:
-        pattern_def = PatternDefinition(
-            name=pattern["name"],
-            category=_determine_category_from_name(pattern["name"]),
-            description=pattern["description"],
-            parameters=[
-                ParameterSpec(
-                    name=name,
-                    type=param["type"],
-                    default=param.get("default"),
-                    min_value=param.get("min"),
-                    max_value=param.get("max"),
-                    description=param.get("description", ""),
-                    units=param.get("units", ""),
-                )
-                for name, param in pattern["parameters"].items()
-            ],
-        )
-        pattern_registry.register_pattern(pattern_def)
-        logger.info(f"Registered pattern: {pattern_def.name}")
+async def _register_patterns():
+    """Register available patterns using engine metadata"""
+    try:
+        patterns = await _controller.pattern_engine.get_available_patterns()
+        for pattern in patterns:
+            pattern_def = PatternDefinition(
+                name=pattern["name"],
+                category=pattern["category"],
+                description=pattern["description"],
+                parameters=[
+                    ParameterSpec(
+                        name=name,
+                        type=param["type"],
+                        default=param.get("default"),
+                        min_value=param.get("min_value"),
+                        max_value=param.get("max_value"),
+                        description=param.get("description", ""),
+                        units=param.get("units", ""),
+                    )
+                    for name, param in pattern["parameters"].items()
+                ],
+                supports_audio=pattern.get("supports_audio", False),
+                supports_transitions=pattern.get("supports_transitions", True),
+            )
+            pattern_registry.register_pattern(pattern_def)
+            logger.info(f"Registered pattern: {pattern_def.name}")
+    except Exception as e:
+        logger.error(f"Failed to register patterns: {e}")
+        raise
 
 
 def _register_modifiers():
@@ -158,27 +165,32 @@ async def get_system_state():
     """Get current system state"""
     _check_controller()
     try:
+        # Get comprehensive state
         state = await _controller.get_state()
+        pattern_state = _controller.pattern_engine.get_current_pattern_state()
 
-        # Create performance metrics if available
-        performance = None
-        if "performance" in state:
-            performance = PerformanceMetrics(
-                fps=state["performance"]["fps"],
-                frame_time=state["performance"]["frame_time"],
-                avg_frame_time=state["performance"].get("avg_frame_time", 0.0),
-                memory_usage=state["performance"].get("memory_usage"),
-            )
+        # Create performance metrics
+        performance = PerformanceMetrics(
+            fps=state["frame_manager"]["actual_fps"],
+            frame_time=state["frame_manager"]["avg_frame_time_ms"],
+            frame_count=pattern_state["frame_count"],
+            dropped_frames=state["frame_manager"]["dropped_frames"],
+            buffer_usage=state["frame_manager"]["buffer_usage"],
+        )
 
         return SystemState(
-            active_pattern=state.get("pattern"),
-            pattern_parameters=state.get("pattern_parameters", {}),
-            active_modifiers=state.get("modifiers", []),
-            modifier_parameters=state.get("modifier_parameters", {}),
-            audio_bindings=state.get("audio_bindings", []),
+            active_pattern=pattern_state["name"],
+            pattern_parameters=pattern_state["parameters"],
+            transition_state={
+                "active": pattern_state["transition"]["active"],
+                "progress": pattern_state["transition"]["progress"],
+                "source": pattern_state["transition"]["source"],
+                "target": pattern_state["transition"]["target"],
+            },
             performance=performance,
-            is_running=state.get("is_running", True),
+            is_running=state["system_state"] == "RUNNING",
         )
+
     except Exception as e:
         logger.error(f"Failed to get system state: {e}")
         raise HTTPException(
@@ -186,30 +198,62 @@ async def get_system_state():
         )
 
 
-@router.post("/pattern", response_model=BaseResponse)
-async def set_pattern(request: PatternRequest):
-    """Set active pattern using pattern specs for validation"""
-    if not _controller:
-        raise HTTPException(status_code=503, detail="System not initialized")
+@router.get("/patterns", response_model=List[PatternDefinition])
+async def get_available_patterns(
+    category: Optional[PatternCategory] = Query(
+        None, description="Filter patterns by category"
+    ),
+):
+    """Get available patterns with optional category filter"""
+    _check_controller()
+    patterns = pattern_registry.get_all_patterns()
+    if category:
+        patterns = [p for p in patterns if p.category == category]
+    return patterns
 
+
+@router.get("/patterns/{pattern_name}", response_model=PatternDefinition)
+async def get_pattern_info(pattern_name: str):
+    """Get detailed pattern information"""
+    _check_controller()
+    pattern_info = await _controller.pattern_engine.get_pattern_info(pattern_name)
+    if not pattern_info:
+        raise HTTPException(status_code=404, detail=f"Pattern {pattern_name} not found")
+    return PatternDefinition(**pattern_info)
+
+
+@router.post("/patterns/{pattern_name}", response_model=BaseResponse)
+async def set_pattern(
+    pattern_name: str,
+    request: PatternRequest,
+    transition: Optional[TransitionRequest] = None,
+):
+    """Set active pattern with optional transition"""
+    _check_controller()
     try:
         # Get pattern definition
-        pattern_def = pattern_registry.get_pattern(request.pattern_name)
+        pattern_def = pattern_registry.get_pattern(pattern_name)
         if not pattern_def:
-            raise ValidationError(f"Unknown pattern: {request.pattern_name}")
+            raise ValidationError(f"Unknown pattern: {pattern_name}")
 
-        # Validate parameters against specs
+        # Validate parameters
         validated_params = _validate_parameters(pattern_def, request.parameters)
 
+        # Prepare transition if specified
+        transition_params = None
+        if transition and pattern_def.supports_transitions:
+            transition_params = {
+                "type": transition.type,
+                "duration_ms": transition.duration_ms,
+            }
+
         # Set pattern
-        await _controller.set_pattern(request.pattern_name, validated_params)
-        logger.info(
-            f"Set pattern {request.pattern_name} with params: {validated_params}"
+        await _controller.set_pattern(
+            pattern_name, validated_params, transition=transition_params
         )
 
         return BaseResponse(
-            status="success",
-            message=f"Pattern '{request.pattern_name}' set successfully",
+            status="success", message=f"Pattern '{pattern_name}' set successfully"
         )
 
     except ValidationError as e:
@@ -253,14 +297,6 @@ async def toggle_modifier(request: ModifierRequest):
         raise HTTPException(
             status_code=500, detail=f"Failed to toggle modifier: {str(e)}"
         )
-
-
-@router.get("/patterns", response_model=List[PatternDefinition])
-async def get_patterns():
-    """Get all available patterns with their specs"""
-    if not _controller:
-        raise HTTPException(status_code=503, detail="System not initialized")
-    return pattern_registry.get_all_patterns()
 
 
 @router.get("/patterns/{category}", response_model=List[PatternDefinition])

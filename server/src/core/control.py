@@ -3,13 +3,38 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
+import signal
+import sys
+from contextlib import asynccontextmanager
+import time
 
 import numpy as np
 
 from ..patterns.base import BasePattern
 from ..patterns.engine import PatternEngine
 from ..patterns.config import PatternConfig, PatternState
+from ..patterns.types import (
+    SolidPattern,
+    GradientPattern,
+    WavePattern,
+    RainbowPattern,
+    ChasePattern,
+    ScanPattern,
+    TwinklePattern,
+    MeteorPattern,
+    BreathePattern,
+)
 from .config import SystemConfig
+from .exceptions import ValidationError
+from .frame_manager import FrameManager
+from .state import SystemStateManager, SystemState
+from .websocket_manager import manager as ws_manager
+from .commands import (
+    CommandQueue,
+    CommandPriority,
+    SetPatternCommand,
+    EmergencyStopCommand,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,287 +72,294 @@ class Command:
 
 
 class SystemController:
-    """Main system controller handling patterns and LED updates"""
+    """Main system controller with command queue"""
 
     def __init__(self, config: SystemConfig):
-        # Store configuration
+        """Initialize system controller"""
         self.config = config
+        self.state_manager = SystemStateManager(config)
+        self.frame_manager = FrameManager(
+            num_leds=config.led.count, target_fps=config.performance.target_fps
+        )
 
-        logger.info(f"Initializing system controller with {self.config.led.count} LEDs")
+        # Initialize pattern engine
+        self.pattern_engine = PatternEngine(num_leds=config.led.count)
 
-        # Initialize components
-        self.pattern_engine = PatternEngine(self.config.led.count)
+        # Command queue
+        self.command_queue = CommandQueue(self.state_manager.transaction_manager)
 
-        # Control state
-        self.is_running = False
-        self.command_queue: asyncio.Queue[Command] = asyncio.Queue()
+        # Control flags
+        self.shutdown_event = asyncio.Event()
         self.update_task: Optional[asyncio.Task] = None
-        self._lock = asyncio.Lock()
+        self._cleanup_tasks: list[asyncio.Task] = []
 
-        # Performance monitoring
-        self.last_frame_time = 0
-        self.frame_times: List[float] = []
-        self.target_frame_time = 1.0 / self.config.performance.target_fps
+        # Register signal handlers
+        self._setup_signal_handlers()
 
-        # Audio state
-        self.audio_processor = None
-        self.audio_bindings: List[AudioBinding] = []
+    def _setup_signal_handlers(self) -> None:
+        """Setup signal handlers for graceful shutdown"""
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sig, self._signal_handler)
 
-    async def initialize(self) -> None:
-        """Initialize the controller and set default pattern"""
-        # Set default pattern (solid color)
-        default_params = {
-            "red": 0,
-            "green": 0,
-            "blue": 255,  # Blue color
-        }
-        await self.set_pattern("solid", default_params)
-        logger.info("Default pattern initialized")
+    def _signal_handler(self, signum: int, frame) -> None:
+        """Handle shutdown signals"""
+        logger.info(f"Received signal {signum}, initiating shutdown")
+        if not self.shutdown_event.is_set():
+            # Create and enqueue emergency stop command
+            stop_cmd = EmergencyStopCommand()
+            asyncio.create_task(self.command_queue.enqueue(stop_cmd))
 
-    def init_audio(self, audio_processor: Any) -> None:
-        """Initialize audio processing"""
-        self.audio_processor = audio_processor
-        self.config.features.audio_enabled = True
+    @property
+    def is_running(self) -> bool:
+        """Check if system is running"""
+        return self.state_manager.current_state == SystemState.RUNNING
+
+    async def _register_patterns(self) -> None:
+        """Register built-in patterns"""
+        patterns = [
+            SolidPattern,
+            GradientPattern,
+            WavePattern,
+            RainbowPattern,
+            ChasePattern,
+            ScanPattern,
+            TwinklePattern,
+            MeteorPattern,
+            BreathePattern,
+        ]
+        for pattern_class in patterns:
+            await self.pattern_engine.register_pattern(pattern_class)
 
     async def start(self) -> None:
-        """Start the control system"""
-        async with self._lock:
-            if self.is_running:
-                return
+        """Start the system"""
+        try:
+            logger.info("Starting system controller")
 
-            # Initialize default pattern
-            await self.initialize()
+            # Initialize components
+            await self.frame_manager.start()
+            await ws_manager.start()
+            await self.command_queue.start()
 
-            self.is_running = True
-            self.update_task = asyncio.create_task(self._update_loop())
+            # Register patterns
+            await self._register_patterns()
+
+            # Start update loop
+            self.update_task = asyncio.create_task(
+                self._update_loop(), name="system_update_loop"
+            )
+            self._cleanup_tasks.append(self.update_task)
+
+            # Transition to ready state
+            await self.state_manager.start()
             logger.info("System controller started")
 
+        except Exception as e:
+            logger.error(f"Failed to start system: {e}")
+            await self.stop()
+            raise
+
     async def stop(self) -> None:
-        """Stop the control system"""
-        async with self._lock:
-            if not self.is_running:
-                return
+        """Stop the system"""
+        if self.shutdown_event.is_set():
+            return
 
-            logger.info("Stopping system controller...")
-            self.is_running = False
-            await self.command_queue.put(Command(CommandType.STOP, {}))
+        logger.info("Stopping system controller")
+        self.shutdown_event.set()
 
-            if self.update_task:
-                try:
-                    await asyncio.wait_for(self.update_task, timeout=1.0)
-                except asyncio.TimeoutError:
-                    self.update_task.cancel()
+        try:
+            # Stop components in order
+            await self.command_queue.stop()
+            await self.state_manager.stop()
+            await self.frame_manager.stop()
+            await ws_manager.stop()
+
+            # Cancel all tasks
+            for task in self._cleanup_tasks:
+                if not task.done():
+                    task.cancel()
                     try:
-                        await self.update_task
+                        await task
                     except asyncio.CancelledError:
                         pass
 
-            # Cleanup
-            await self.pattern_engine.cleanup()
-            if self.audio_processor:
-                self.audio_processor.cleanup()
-
             logger.info("System controller stopped")
+
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+            raise
 
     async def _update_loop(self) -> None:
         """Main update loop"""
-        last_update = asyncio.get_event_loop().time()
-        min_frame_time = 1.0 / self.config.performance.target_fps
+        consecutive_errors = 0
+        last_error_time = 0.0
+        ERROR_THRESHOLD = 10
+        ERROR_RESET_TIME = 5.0  # seconds
 
-        while self.is_running:
-            try:
-                current_time = asyncio.get_event_loop().time()
-                frame_delta = current_time - last_update
-
-                # Rate limiting - ensure we don't update faster than target FPS
-                if frame_delta < min_frame_time:
-                    await asyncio.sleep(min_frame_time - frame_delta)
-                    current_time = asyncio.get_event_loop().time()
-                    frame_delta = current_time - last_update
-
-                # Process any pending commands
-                while not self.command_queue.empty():
-                    cmd = await self.command_queue.get()
-                    await self._handle_command(cmd)
-                    self.command_queue.task_done()
-
-                # Update pattern
-                frame = await self.pattern_engine.update(
-                    current_time * 1000  # Convert to milliseconds
-                )
-
-                if frame is not None:
-                    logger.debug(
-                        f"Generated frame with shape {frame.shape}, "
-                        f"range: [{frame.min()}, {frame.max()}]"
-                    )
-
-                # Process audio if enabled
-                if self.config.features.audio_enabled and self.audio_processor:
-                    await self._process_audio_bindings()
-
-                # Update performance metrics
-                self.frame_times.append(frame_delta)
-                if len(self.frame_times) > 60:
-                    self.frame_times.pop(0)
-                self.last_frame_time = frame_delta
-
-                last_update = current_time
-
-            except asyncio.CancelledError:
-                logger.info("Update loop cancelled")
-                break
-            except Exception as e:
-                logger.error(f"Update loop error: {e}")
-                await asyncio.sleep(0.1)  # Prevent tight error loop
-
-    async def _process_audio_bindings(self) -> None:
-        """Process audio bindings and update modifiers"""
         try:
-            features = self.audio_processor.get_features()
-            if not features:
-                return
+            while not self.shutdown_event.is_set():
+                if not self.is_running:
+                    await asyncio.sleep(0.1)
+                    continue
 
-            for binding in self.audio_bindings:
-                if binding.audio_metric in features:
-                    value = (
-                        features[binding.audio_metric] * binding.scale + binding.offset
+                try:
+                    current_time = time.time()
+
+                    # Reset error count if enough time has passed
+                    if current_time - last_error_time > ERROR_RESET_TIME:
+                        consecutive_errors = 0
+
+                    # Update state
+                    await self.state_manager.update()
+
+                    # Generate frame
+                    frame, metrics = await self.frame_manager.generate_frame(
+                        self._generate_pattern_frame
                     )
-                    await self.pattern_engine.update_modifier_parameter(
-                        binding.modifier_name, binding.parameter, value
+
+                    # Update performance metrics
+                    self.state_manager.performance.update(
+                        metrics.generation_time_ms, metrics.transfer_time_ms
                     )
+
+                    # Broadcast frame
+                    if frame is not None:
+                        await ws_manager.broadcast_frame(
+                            frame,
+                            {
+                                "frame_number": metrics.frame_number,
+                                "timestamp": metrics.timestamp,
+                            },
+                        )
+
+                    # Reset error count on successful iteration
+                    consecutive_errors = 0
+
+                    # Maintain target frame rate
+                    await asyncio.sleep(1 / self.config.performance.target_fps)
+
+                except Exception as e:
+                    consecutive_errors += 1
+                    last_error_time = current_time
+                    logger.error(f"Update loop error: {e}")
+                    self.state_manager.performance.record_error(str(e))
+
+                    # Handle consecutive errors
+                    if consecutive_errors >= ERROR_THRESHOLD:
+                        logger.critical(
+                            f"Too many consecutive errors ({consecutive_errors}), attempting recovery"
+                        )
+                        try:
+                            # Try to recover pattern engine
+                            await self.pattern_engine.reset()
+                            # Reset frame manager
+                            await self.frame_manager.reset()
+                            # Clear command queue
+                            await self.command_queue.clear()
+                            logger.info("Recovery attempt completed")
+                            consecutive_errors = 0
+                        except Exception as recovery_error:
+                            logger.error(f"Recovery failed: {recovery_error}")
+                            await self.stop()
+                            raise
+
+                    # Delay based on error count
+                    delay = min(consecutive_errors * 0.5, 5.0)  # Max 5 second delay
+                    await asyncio.sleep(delay)
+
+        except asyncio.CancelledError:
+            logger.info("Update loop cancelled")
+            raise
+
         except Exception as e:
-            logger.error(f"Audio binding error: {e}")
+            logger.error(f"Fatal error in update loop: {e}")
+            await self.stop()
+            raise
 
-    async def _handle_command(self, command: Command) -> None:
-        """Handle a command from the queue"""
+    async def _generate_pattern_frame(
+        self, time_ms: float, **kwargs
+    ) -> Optional[np.ndarray]:
+        """Generate pattern frame using pattern engine with validation"""
         try:
-            if command.type == CommandType.STOP:
-                self.is_running = False
-            elif command.type == CommandType.SET_PATTERN:
-                pattern_name = command.params["pattern"]
-                params = command.params.get("params", {})
-                logger.info(
-                    f"Handling SET_PATTERN command: {pattern_name} with params: {params}"
+            # Check if we have an active pattern
+            if not self.pattern_engine.current_pattern:
+                # Return black frame if no pattern is active
+                return np.zeros((self.config.led.count, 3), dtype=np.uint8)
+
+            # Generate frame with timing
+            start_time = time.perf_counter()
+            frame = await self.pattern_engine.generate_frame(time_ms)
+            generation_time = (time.perf_counter() - start_time) * 1000
+
+            # Validate frame
+            if frame is None:
+                raise ValidationError("Pattern generated None frame")
+            if not isinstance(frame, np.ndarray):
+                raise ValidationError(f"Invalid frame type: {type(frame)}")
+            if frame.shape != (self.config.led.count, 3):
+                raise ValidationError(
+                    f"Invalid frame shape: {frame.shape}, expected ({self.config.led.count}, 3)"
                 )
-                pattern_config = PatternConfig(
-                    pattern_type=pattern_name,
-                    parameters=params,
-                    modifiers=[],
-                )
-                await self.pattern_engine.set_pattern(pattern_config)
-                logger.debug("Pattern set successfully")
-            elif command.type == CommandType.UPDATE_PARAMS:
-                await self.pattern_engine.update_parameters(command.params)
-            elif command.type == CommandType.TOGGLE_MODIFIER:
-                name = command.params["name"]
-                if name in self.pattern_engine.active_modifiers:
-                    await self.pattern_engine.remove_modifier(name)
-                else:
-                    await self.pattern_engine.add_modifier(
-                        name, command.params.get("params", {})
-                    )
-            elif command.type == CommandType.SET_BRIGHTNESS:
-                self.config.led.brightness = command.params["brightness"]
-            elif command.type == CommandType.ADD_AUDIO_BINDING:
-                if self.config.features.audio_enabled:
-                    self.audio_bindings.append(AudioBinding(**command.params))
-            elif command.type == CommandType.REMOVE_AUDIO_BINDING:
-                if self.config.features.audio_enabled:
-                    self.audio_bindings = [
-                        b
-                        for b in self.audio_bindings
-                        if b.modifier_name != command.params["modifier_name"]
-                    ]
-            elif command.type == CommandType.RESET_MODIFIERS:
-                await self.pattern_engine.reset_modifiers()
+            if frame.dtype != np.uint8:
+                frame = np.clip(frame, 0, 255).astype(np.uint8)
+
+            # Update performance metrics
+            self.state_manager.performance.update(generation_time, 0)
+            return frame
+
         except Exception as e:
-            logger.error(f"Command handling error: {e}")
-            # Notify any error handlers
-            try:
-                await ws_manager.broadcast(
-                    {
-                        "type": "error",
-                        "data": {"message": f"Command failed: {str(e)}"},
-                    }
-                )
-            except Exception as broadcast_error:
-                logger.error(f"Failed to broadcast error: {broadcast_error}")
+            error_msg = f"Frame generation failed: {str(e)}"
+            logger.error(error_msg)
+            self.state_manager.performance.record_error(error_msg)
 
-    async def set_pattern(
-        self, pattern_name: str, params: Optional[Dict] = None
-    ) -> None:
-        """Set the active pattern"""
-        logger.info(f"Setting pattern to {pattern_name} with params: {params}")
-        await self.command_queue.put(
-            Command(
-                CommandType.SET_PATTERN,
-                {"pattern": pattern_name, "params": params or {}},
+            # Return last valid frame or black frame
+            return getattr(
+                self.pattern_engine,
+                "_last_valid_frame",
+                np.zeros((self.config.led.count, 3), dtype=np.uint8),
             )
-        )
-        logger.debug("Pattern command queued successfully")
 
-    async def update_parameters(self, params: Dict[str, Any]) -> None:
-        """Update pattern parameters"""
-        await self.command_queue.put(Command(CommandType.UPDATE_PARAMS, params))
+    @asynccontextmanager
+    async def pause(self):
+        """Temporarily pause the system"""
+        was_running = self.is_running
+        if was_running:
+            await self.state_manager.pause()
+        try:
+            yield
+        finally:
+            if was_running:
+                await self.state_manager.resume()
 
-    async def toggle_modifier(self, name: str, params: Optional[Dict] = None) -> None:
-        """Toggle a pattern modifier"""
-        await self.command_queue.put(
-            Command(CommandType.TOGGLE_MODIFIER, {"name": name, "params": params or {}})
-        )
-
-    async def set_brightness(self, brightness: float) -> None:
-        """Set LED brightness"""
-        await self.command_queue.put(
-            Command(CommandType.SET_BRIGHTNESS, {"brightness": brightness})
-        )
-
-    async def add_audio_binding(
-        self,
-        modifier_name: str,
-        parameter: str,
-        audio_metric: str,
-        scale: float = 1.0,
-        offset: float = 0.0,
-    ) -> None:
-        """Add an audio parameter binding"""
-        await self.command_queue.put(
-            Command(
-                CommandType.ADD_AUDIO_BINDING,
-                {
-                    "modifier_name": modifier_name,
-                    "parameter": parameter,
-                    "audio_metric": audio_metric,
-                    "scale": scale,
-                    "offset": offset,
-                },
-            )
-        )
-
-    async def remove_audio_binding(self, modifier_name: str) -> None:
-        """Remove an audio binding"""
-        await self.command_queue.put(
-            Command(CommandType.REMOVE_AUDIO_BINDING, {"modifier_name": modifier_name})
-        )
-
-    async def get_state(self) -> Dict[str, Any]:
+    def get_state(self) -> Dict[str, Any]:
         """Get current system state"""
-        async with self._lock:
-            return {
-                "pattern": self.pattern_engine.current_pattern.name
+        return {
+            **self.state_manager.get_state(),
+            "frame_manager": self.frame_manager.get_performance_metrics(),
+            "pattern_engine": {
+                "current_pattern": self.pattern_engine.current_pattern.name
                 if self.pattern_engine.current_pattern
-                else "",
-                "modifiers": list(self.pattern_engine.active_modifiers.keys()),
-                "performance": {
-                    "fps": 1.0 / self.last_frame_time
-                    if self.last_frame_time > 0
-                    else 0.0,
-                    "frame_time": self.last_frame_time,
-                },
-                "audio": {
-                    "enabled": self.config.features.audio_enabled,
-                }
-                if self.audio_processor
                 else None,
-            }
+                "available_patterns": list(self.pattern_engine.patterns.keys()),
+                "transition_state": {
+                    "active": self.pattern_engine.transition_state.is_active,
+                    "progress": self.pattern_engine.transition_state.progress,
+                },
+            },
+            "command_queue": {
+                "current_command": self.command_queue.get_current_command(),
+                "history": self.command_queue.get_history(5),
+            },
+        }
+
+    # Command interface methods
+    async def set_pattern(
+        self, pattern_name: str, parameters: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Set active pattern through command queue"""
+        command = SetPatternCommand(pattern_name, parameters)
+        await self.command_queue.enqueue(command)
+
+    async def emergency_stop(self) -> None:
+        """Trigger emergency stop"""
+        command = EmergencyStopCommand()
+        await self.command_queue.enqueue(command)

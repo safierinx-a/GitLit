@@ -1,12 +1,25 @@
 from typing import Any, Dict, List
-
 import numpy as np
+import colorsys
 
 from ...base import BasePattern, ModifiableAttribute, ParameterSpec
 
 
 class RainbowPattern(BasePattern):
-    """Moving rainbow pattern across the strip"""
+    """Moving rainbow pattern across the strip with enhanced color control"""
+
+    def __init__(self, led_count: int):
+        super().__init__(led_count)
+        self.state.cached_data.update(
+            {
+                "last_speed": 1.0,
+                "last_scale": 1.0,
+                "last_saturation": 1.0,
+                "last_value": 1.0,
+                "last_offset": 0.0,
+                "last_wave_amplitude": 0.0,
+            }
+        )
 
     @classmethod
     @property
@@ -38,53 +51,126 @@ class RainbowPattern(BasePattern):
                 max_value=1.0,
                 description="Color saturation",
             ),
+            ParameterSpec(
+                name="value",
+                type=float,
+                default=1.0,
+                min_value=0.0,
+                max_value=1.0,
+                description="Color brightness",
+            ),
+            ParameterSpec(
+                name="offset",
+                type=float,
+                default=0.0,
+                min_value=0.0,
+                max_value=1.0,
+                description="Color wheel offset",
+            ),
+            ParameterSpec(
+                name="reverse",
+                type=bool,
+                default=False,
+                description="Reverse rainbow direction",
+            ),
+            ParameterSpec(
+                name="wave_amplitude",
+                type=float,
+                default=0.0,
+                min_value=0.0,
+                max_value=1.0,
+                description="Wave motion amplitude",
+            ),
+        ]
+
+    @classmethod
+    @property
+    def modifiable_attributes(cls) -> List[ModifiableAttribute]:
+        return [
+            ModifiableAttribute(
+                name="color",
+                description="Rainbow color properties",
+                parameter_specs=[
+                    ParameterSpec(
+                        name="saturation_scale",
+                        type=float,
+                        default=1.0,
+                        min_value=0.0,
+                        max_value=2.0,
+                        description="Saturation multiplier",
+                    ),
+                    ParameterSpec(
+                        name="value_scale",
+                        type=float,
+                        default=1.0,
+                        min_value=0.0,
+                        max_value=2.0,
+                        description="Brightness multiplier",
+                    ),
+                ],
+                supports_audio=True,
+            ),
+            ModifiableAttribute(
+                name="motion",
+                description="Rainbow motion properties",
+                parameter_specs=[
+                    ParameterSpec(
+                        name="speed_scale",
+                        type=float,
+                        default=1.0,
+                        min_value=0.1,
+                        max_value=5.0,
+                        description="Speed multiplier",
+                    ),
+                    ParameterSpec(
+                        name="wave_amplitude",
+                        type=float,
+                        default=0.0,
+                        min_value=0.0,
+                        max_value=1.0,
+                        description="Wave motion amplitude",
+                    ),
+                ],
+                supports_audio=True,
+            ),
         ]
 
     def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
-        """Generate a moving rainbow pattern"""
+        """Generate rainbow pattern with enhanced control"""
         # Get parameters with validation
         speed = np.clip(params.get("speed", 1.0), 0.1, 5.0)
         scale = np.clip(params.get("scale", 1.0), 0.1, 5.0)
         saturation = np.clip(params.get("saturation", 1.0), 0.0, 1.0)
+        value = np.clip(params.get("value", 1.0), 0.0, 1.0)
+        offset = np.clip(params.get("offset", 0.0), 0.0, 1.0)
+        reverse = params.get("reverse", False)
+        wave_amplitude = np.clip(params.get("wave_amplitude", 0.0), 0.0, 1.0)
 
-        # Calculate time offset
-        t = (time_ms / 1000.0 * speed) % 1.0
+        # Cache current values for transitions
+        self.state.cache_value("last_speed", speed)
+        self.state.cache_value("last_scale", scale)
+        self.state.cache_value("last_saturation", saturation)
+        self.state.cache_value("last_value", value)
+        self.state.cache_value("last_offset", offset)
+        self.state.cache_value("last_wave_amplitude", wave_amplitude)
 
-        # Generate hues for all LEDs at once
-        positions = np.linspace(0, 1, self.led_count)
-        hues = (positions * scale + t) % 1.0
+        # Use timing system for smooth movement
+        t = self.timing.get_phase() * (-1 if reverse else 1)
 
-        # Create RGB array
-        frame = np.zeros((self.led_count, 3), dtype=np.uint8)
-
-        # Convert HSV to RGB for each LED
+        # Generate rainbow colors
         for i in range(self.led_count):
-            h = hues[i]
-            s = saturation
-            v = 1.0
+            # Calculate hue position with wave motion
+            base_pos = i / self.led_count
+            wave_offset = np.sin(base_pos * 2 * np.pi) * wave_amplitude
+            hue = ((base_pos + wave_offset) * scale + t + offset) % 1.0
 
-            h_i = int(h * 6)
-            f = h * 6 - h_i
-            p = v * (1 - s)
-            q = v * (1 - f * s)
-            t = v * (1 - (1 - f) * s)
+            # Convert HSV to RGB
+            rgb = colorsys.hsv_to_rgb(hue, saturation, value)
 
-            if h_i == 0:
-                r, g, b = v, t, p
-            elif h_i == 1:
-                r, g, b = q, v, p
-            elif h_i == 2:
-                r, g, b = p, v, t
-            elif h_i == 3:
-                r, g, b = p, q, v
-            elif h_i == 4:
-                r, g, b = t, p, v
-            else:
-                r, g, b = v, p, q
+            # Scale to 0-255 range
+            self.frame_buffer[i] = (np.array(rgb) * 255).astype(np.uint8)
 
-            frame[i] = [int(r * 255), int(g * 255), int(b * 255)]
-
-        return frame
+        return self.frame_buffer
 
     def _hsv_to_rgb_vectorized(self, hsv: np.ndarray) -> np.ndarray:
         """Convert HSV colors to RGB efficiently"""

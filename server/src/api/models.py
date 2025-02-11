@@ -92,40 +92,57 @@ class PatternCategory(str, Enum):
     OTHER = "other"
 
 
+class TransitionType(str, Enum):
+    """Types of pattern transitions"""
+
+    CROSSFADE = "crossfade"
+    INSTANT = "instant"
+    WIPE = "wipe"
+    SLIDE = "slide"
+    FADE = "fade"
+
+
+class TransitionRequest(BaseModel):
+    """Pattern transition request"""
+
+    type: TransitionType = TransitionType.CROSSFADE
+    duration_ms: float = Field(500.0, ge=0)
+
+
 class PatternRequest(BaseModel):
     """Request to set a pattern"""
 
-    pattern_name: str
-    parameters: Dict[str, Any]
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    transition: Optional[TransitionRequest] = None
 
     @validator("parameters")
     def validate_parameters(cls, v):
         """Validate parameters against pattern specs"""
-        # Ensure all color values are integers
-        for key in ["red", "green", "blue"]:
-            if key in v:
-                try:
-                    v[key] = int(v[key])
-                    if not 0 <= v[key] <= 255:
-                        raise ValueError(f"{key} must be between 0 and 255")
-                except (TypeError, ValueError):
-                    raise ValueError(f"Invalid {key} value: {v[key]}")
-
-        # Set defaults for missing color parameters
-        for key in ["red", "green", "blue"]:
-            if key not in v:
-                v[key] = 255  # Default to full intensity
-
+        # Basic validation, detailed validation happens in the controller
+        if not isinstance(v, dict):
+            raise ValueError("Parameters must be a dictionary")
         return v
 
 
 class PatternDefinition(BaseModel):
-    """Pattern definition using parameter specs"""
+    """Pattern definition with enhanced metadata"""
 
     name: str
     category: str
     description: str
     parameters: List[ParameterSpec]
+    supports_audio: bool = False
+    supports_transitions: bool = True
+    preview_url: Optional[str] = None  # URL to pattern preview animation
+
+
+class TransitionState(BaseModel):
+    """Pattern transition state"""
+
+    active: bool
+    progress: float = Field(0.0, ge=0.0, le=1.0)
+    source: Optional[str] = None
+    target: Optional[str] = None
 
 
 # Modifier Models
@@ -184,36 +201,44 @@ class AudioBinding(BaseModel):
 
 # System State Models
 class PerformanceMetrics(BaseModel):
-    """System performance information"""
+    """Enhanced performance metrics"""
 
     fps: float
     frame_time: float
-    avg_frame_time: float
+    frame_count: int
+    dropped_frames: int
+    buffer_usage: float
+    cpu_usage: Optional[float] = None
     memory_usage: Optional[float] = None
 
 
 class SystemState(BaseModel):
-    """Current system state"""
+    """Enhanced system state model"""
 
     active_pattern: Optional[str]
-    pattern_parameters: Optional[Dict[str, Any]]
-    active_modifiers: List[str] = []
-    modifier_parameters: Dict[str, Any] = {}
-    audio_bindings: List[AudioBinding] = []
-    performance: Optional[PerformanceMetrics] = None
+    pattern_parameters: Dict[str, Any]
+    transition_state: TransitionState
+    performance: Optional[PerformanceMetrics]
     is_running: bool
+    error: Optional[str] = None
 
 
 # Registry Models
 class PatternRegistry:
-    """Registry of available patterns"""
+    """Enhanced pattern registry with metadata"""
 
     def __init__(self):
         self._patterns: Dict[str, PatternDefinition] = {}
+        self._categories: Dict[str, List[str]] = {}
 
-    def register_pattern(self, pattern: PatternDefinition):
-        """Register a pattern definition"""
+    def register_pattern(self, pattern: PatternDefinition) -> None:
+        """Register a pattern with category indexing"""
         self._patterns[pattern.name] = pattern
+
+        # Index by category
+        if pattern.category not in self._categories:
+            self._categories[pattern.category] = []
+        self._categories[pattern.category].append(pattern.name)
 
     def get_pattern(self, name: str) -> Optional[PatternDefinition]:
         """Get pattern by name"""
@@ -222,6 +247,16 @@ class PatternRegistry:
     def get_all_patterns(self) -> List[PatternDefinition]:
         """Get all registered patterns"""
         return list(self._patterns.values())
+
+    def get_patterns_by_category(self, category: str) -> List[PatternDefinition]:
+        """Get patterns in a category"""
+        if category not in self._categories:
+            return []
+        return [self._patterns[name] for name in self._categories[category]]
+
+    def get_categories(self) -> List[str]:
+        """Get available categories"""
+        return list(self._categories.keys())
 
 
 class ModifierRegistry(BaseModel):

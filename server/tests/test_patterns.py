@@ -19,6 +19,15 @@ from src.patterns import (
     BreathePattern,
 )
 
+import pytest
+import numpy as np
+
+from server.src.patterns.base import BasePattern
+from server.src.patterns.engine import PatternEngine
+from server.src.patterns.types.static.solid import SolidPattern
+from server.src.patterns.types.static.gradient import GradientPattern
+from server.src.core.exceptions import ValidationError
+
 
 def load_config():
     config_path = os.path.join(project_root, "config/led_config.yaml")
@@ -89,3 +98,141 @@ if __name__ == "__main__":
     print("Running pattern tests...")
     test_patterns()
     print("\nTests completed!")
+
+
+@pytest.fixture
+def num_leds():
+    """Test LED count"""
+    return 60
+
+
+@pytest.fixture
+async def pattern_engine(num_leds):
+    """Test pattern engine"""
+    engine = PatternEngine(num_leds)
+    await engine.start()
+    yield engine
+    await engine.stop()
+
+
+class TestPatternBase:
+    """Test base pattern functionality"""
+
+    def test_pattern_initialization(self, num_leds):
+        """Test pattern initialization"""
+        pattern = SolidPattern(num_leds)
+        assert pattern.num_leds == num_leds
+        assert pattern.frame_buffer.shape == (num_leds, 3)
+        assert pattern.frame_buffer.dtype == np.uint8
+
+    async def test_parameter_validation(self, num_leds):
+        """Test parameter validation"""
+        pattern = SolidPattern(num_leds)
+
+        # Valid parameters
+        await pattern.update_parameters({"red": 255, "green": 0, "blue": 0})
+
+        # Invalid parameters
+        with pytest.raises(ValidationError):
+            await pattern.update_parameters({"red": 300})  # Invalid value
+
+
+class TestPatternTypes:
+    """Test specific pattern implementations"""
+
+    async def test_solid_pattern(self, num_leds):
+        """Test solid color pattern"""
+        pattern = SolidPattern(num_leds)
+        await pattern.update_parameters({"red": 255, "green": 0, "blue": 0})
+
+        frame = await pattern.generate(0)
+        assert frame is not None
+        assert np.all(frame[:, 0] == 255)  # Red channel
+        assert np.all(frame[:, 1:] == 0)  # Green and Blue channels
+
+    async def test_gradient_pattern(self, num_leds):
+        """Test gradient pattern"""
+        pattern = GradientPattern(num_leds)
+        await pattern.update_parameters(
+            {
+                "color1_r": 255,
+                "color1_g": 0,
+                "color1_b": 0,
+                "color2_r": 0,
+                "color2_g": 0,
+                "color2_b": 255,
+                "position": 0.5,
+            }
+        )
+
+        frame = await pattern.generate(0)
+        assert frame is not None
+        assert frame.shape == (num_leds, 3)
+        # Check gradient properties
+        assert frame[0][0] > frame[-1][0]  # Red decreases
+        assert frame[0][2] < frame[-1][2]  # Blue increases
+
+    async def test_rainbow_pattern(self, num_leds):
+        """Test rainbow pattern"""
+        pattern = RainbowPattern(num_leds)
+        await pattern.update_parameters({"speed": 1.0, "scale": 1.0})
+
+        # Generate multiple frames to test movement
+        frame1 = await pattern.generate(0)
+        frame2 = await pattern.generate(1000)  # 1 second later
+
+        assert not np.array_equal(frame1, frame2)  # Pattern should move
+
+
+class TestPatternEngine:
+    """Test pattern engine functionality"""
+
+    async def test_pattern_registration(self, pattern_engine):
+        """Test pattern registration"""
+        patterns = await pattern_engine.get_available_patterns()
+        assert len(patterns) > 0
+        assert any(p["name"] == "solid" for p in patterns)
+
+    async def test_pattern_transition(self, pattern_engine):
+        """Test pattern transitions"""
+        # Set initial pattern
+        await pattern_engine.set_pattern("solid", {"red": 255, "green": 0, "blue": 0})
+
+        # Transition to new pattern
+        await pattern_engine.set_pattern(
+            "gradient",
+            {
+                "color1_r": 0,
+                "color1_g": 255,
+                "color1_b": 0,
+                "color2_r": 0,
+                "color2_g": 0,
+                "color2_b": 255,
+            },
+            transition="crossfade",
+            duration_ms=100,
+        )
+
+        # Check transition state
+        assert pattern_engine.transition_state.is_active
+        assert pattern_engine.transition_state.source_pattern == "solid"
+        assert pattern_engine.transition_state.target_pattern == "gradient"
+
+
+class TestErrorHandling:
+    """Test pattern error handling"""
+
+    async def test_invalid_parameters(self, pattern_engine):
+        """Test invalid parameter handling"""
+        with pytest.raises(ValidationError):
+            await pattern_engine.set_pattern("solid", {"red": 300})
+
+    async def test_frame_generation_error(self, num_leds):
+        """Test frame generation error handling"""
+        pattern = SolidPattern(num_leds)
+        # Force an error in frame generation
+        pattern._generate = lambda t: None  # Invalid frame
+
+        frame = await pattern.generate(0)
+        assert frame is not None  # Should return emergency frame
+        assert frame.shape == (num_leds, 3)

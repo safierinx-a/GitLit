@@ -1,17 +1,32 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
-
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Union, ClassVar, Tuple
+import time
+import logging
 import numpy as np
 
-from ..core.exceptions import PatternError
+from ..core.exceptions import PatternError, ValidationError
 from ..core.timing import TimeState
 from .config import PatternState
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
-class ParameterSpec:
-    """Specification for a pattern parameter"""
+class PatternMetrics:
+    """Pattern performance metrics"""
+
+    generation_time_ms: float = 0.0
+    state_update_time_ms: float = 0.0
+    frame_count: int = 0
+    error_count: int = 0
+    last_error: str = ""
+    parameter_updates: int = 0
+
+
+@dataclass
+class Parameter:
+    """Pattern parameter definition with validation"""
 
     name: str
     type: type
@@ -19,21 +34,53 @@ class ParameterSpec:
     min_value: Optional[Any] = None
     max_value: Optional[Any] = None
     description: str = ""
-    units: str = ""  # e.g., "Hz", "ms", "%"
+    units: str = ""
+
+    def validate(self, value: Any) -> Any:
+        """Validate and normalize parameter value"""
+        try:
+            # Type conversion
+            value = self.type(value)
+
+            # Range validation
+            if self.min_value is not None and value < self.min_value:
+                logger.warning(
+                    f"Clamping {self.name} to minimum value {self.min_value}"
+                )
+                value = self.min_value
+            if self.max_value is not None and value > self.max_value:
+                logger.warning(
+                    f"Clamping {self.name} to maximum value {self.max_value}"
+                )
+                value = self.max_value
+
+            return value
+
+        except (ValueError, TypeError) as e:
+            raise ValidationError(
+                f"Invalid value for parameter {self.name}: {value}. {str(e)}"
+            )
 
 
 @dataclass
 class ColorSpec(ParameterSpec):
-    """Specification for color parameters"""
+    """Specification for a color parameter"""
 
-    def __init__(self, name: str, description: str = "", default: int = 0):
+    def __init__(
+        self,
+        name: str,
+        description: str = "",
+        default: int = 0,
+        min_value: int = 0,
+        max_value: int = 255,
+    ):
         super().__init__(
             name=name,
             type=int,
-            default=default,
-            min_value=0,
-            max_value=255,
             description=description,
+            default=default,
+            min_value=min_value,
+            max_value=max_value,
         )
 
 
@@ -47,111 +94,167 @@ class ModifiableAttribute:
     supports_audio: bool = False  # Can this be audio reactive?
 
 
+@dataclass
+class PatternState:
+    """Pattern state with improved validation"""
+
+    # Basic state
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    frame_count: int = 0
+    is_transitioning: bool = False
+
+    # Timing
+    start_time: float = field(default_factory=time.perf_counter)
+    last_update: float = 0.0
+    delta_time: float = 0.0
+
+    # Performance tracking
+    metrics: PatternMetrics = field(default_factory=PatternMetrics)
+
+    # Cached computations
+    cache: Dict[str, Any] = field(default_factory=dict)
+
+    def update(self, current_time: float) -> None:
+        """Update pattern state"""
+        # Update timing
+        if self.last_update > 0:
+            self.delta_time = current_time - self.last_update
+        self.last_update = current_time
+
+        # Update counters
+        self.frame_count += 1
+        self.metrics.frame_count = self.frame_count
+
+    def reset(self) -> None:
+        """Reset pattern state"""
+        self.frame_count = 0
+        self.last_update = 0
+        self.delta_time = 0
+        self.start_time = time.perf_counter()
+        self.cache.clear()
+        self.metrics = PatternMetrics()
+
+
 class BasePattern(ABC):
-    """Abstract base class for all patterns"""
+    """Base class for all patterns with improved state management"""
 
-    def __init__(self, led_count: int):
-        self.led_count = led_count
-        self.frame_buffer = np.zeros((led_count, 3), dtype=np.uint8)
+    # Class-level pattern metadata
+    name: ClassVar[str] = ""
+    description: ClassVar[str] = ""
+    parameters: ClassVar[List[Parameter]] = []
+
+    def __init__(self, num_leds: int):
+        """Initialize pattern"""
+        self.num_leds = num_leds
         self.state = PatternState()
-        self.timing = TimeState()
+        self.frame_buffer = np.zeros((num_leds, 3), dtype=np.uint8)
+        self._last_valid_frame = None
 
-    @classmethod
-    @property
-    def name(cls) -> str:
-        """Pattern name"""
-        return cls.__name__.replace("Pattern", "")
+        # Initialize with default parameters
+        self._init_parameters()
 
-    @classmethod
-    @property
-    def description(cls) -> str:
-        """Pattern description"""
-        return cls.__doc__ or ""
+    def _init_parameters(self) -> None:
+        """Initialize pattern parameters with defaults"""
+        self.state.parameters = {param.name: param.default for param in self.parameters}
 
-    @classmethod
-    @property
-    def parameters(cls) -> List[ParameterSpec]:
-        """Define pattern parameters"""
-        return []
-
-    @classmethod
-    @property
-    def modifiable_attributes(cls) -> List[ModifiableAttribute]:
-        """Define which aspects can be modified"""
-        return []
-
-    def before_generate(self, time_ms: float, params: Dict[str, Any]) -> None:
-        """Pre-generation hook for state updates"""
-        # Update timing first
-        self.timing.update(time_ms)
-        self.state.update(time_ms)
-
-        # Store a copy of current parameters
-        current_params = self.state.parameters.copy()
-
-        # Update with new parameters, preserving any existing ones not in params
-        current_params.update(params)
-        self.state.parameters = current_params
-
-        # Update timing scale if speed parameter exists
-        if "speed" in params:
-            self.timing.time_scale = params["speed"]
-
-    def after_generate(self, time_ms: float, params: Dict[str, Any]) -> None:
-        """Post-generation hook for cleanup and metrics"""
-        # Update performance metrics
-        if len(self.state.frame_times) > 60:
-            self.state.frame_times.pop(0)
-        self.state.frame_times.append(self.state.delta_time)
-        self.state.avg_frame_time = sum(self.state.frame_times) / len(
-            self.state.frame_times
-        )
-
-    def generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
-        """Generate pattern frame with complete state management"""
+    async def update_parameters(self, params: Dict[str, Any]) -> None:
+        """Update pattern parameters with validation"""
+        start_time = time.perf_counter()
         try:
-            # Pre-generation state update
-            self.before_generate(time_ms, params)
+            # Validate parameters
+            validated = {}
+            for name, value in params.items():
+                param_def = self._get_parameter_def(name)
+                if param_def:
+                    validated[name] = param_def.validate(value)
+                else:
+                    logger.warning(f"Unknown parameter: {name}")
+
+            # Update state
+            self.state.parameters.update(validated)
+            self.state.metrics.parameter_updates += 1
+
+            # Test generate one frame
+            test_frame = await self.generate(time.perf_counter() * 1000)
+            if test_frame is None:
+                raise ValidationError(
+                    "Failed to generate test frame with new parameters"
+                )
+
+        except Exception as e:
+            self.state.metrics.error_count += 1
+            self.state.metrics.last_error = str(e)
+            raise
+
+        finally:
+            self.state.metrics.state_update_time_ms = (
+                time.perf_counter() - start_time
+            ) * 1000
+
+    def _get_parameter_def(self, name: str) -> Optional[Parameter]:
+        """Get parameter definition by name"""
+        return next((p for p in self.parameters if p.name == name), None)
+
+    async def generate(self, time_ms: float) -> Optional[np.ndarray]:
+        """Generate pattern frame with error handling"""
+        start_time = time.perf_counter()
+
+        try:
+            # Update state
+            self.state.update(time_ms / 1000.0)
 
             # Generate frame
-            frame = self._generate(time_ms, params)
+            frame = await self._generate(time_ms)
 
-            # Validate frame before post-processing
+            # Validate frame
             if frame is None:
                 raise PatternError("Pattern generated None frame")
             if not isinstance(frame, np.ndarray):
                 raise PatternError(f"Invalid frame type: {type(frame)}")
-            if frame.shape != (self.led_count, 3):
+            if frame.shape != (self.num_leds, 3):
                 raise PatternError(
-                    f"Invalid frame shape: {frame.shape}, expected ({self.led_count}, 3)"
+                    f"Invalid frame shape: {frame.shape}, expected ({self.num_leds}, 3)"
                 )
 
+            # Store last valid frame
+            self._last_valid_frame = frame.copy()
+
             # Ensure frame values are in valid range
-            frame = np.clip(frame, 0, 255).astype(np.uint8)
-
-            # Post-generation cleanup
-            self.after_generate(time_ms, params)
-
-            return frame
+            return np.clip(frame, 0, 255).astype(np.uint8)
 
         except Exception as e:
-            raise PatternError(f"Pattern generation failed: {e}")
+            self.state.metrics.error_count += 1
+            self.state.metrics.last_error = str(e)
+            logger.error(f"Frame generation failed: {e}")
+            return (
+                self._last_valid_frame
+                if self._last_valid_frame is not None
+                else np.zeros((self.num_leds, 3), dtype=np.uint8)
+            )
 
-    def reset(self) -> None:
-        """Reset pattern state while preserving parameters"""
-        # Store current parameters
-        current_params = self.state.parameters.copy()
-
-        # Reset frame buffer
-        self.frame_buffer.fill(0)
-
-        # Reset state
-        self.state.reset()
-
-        # Restore parameters
-        self.state.parameters = current_params
+        finally:
+            self.state.metrics.generation_time_ms = (
+                time.perf_counter() - start_time
+            ) * 1000
 
     @abstractmethod
-    def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
+    async def _generate(self, time_ms: float) -> np.ndarray:
         """Generate pattern frame"""
         pass
+
+    def get_state(self) -> Dict[str, Any]:
+        """Get pattern state"""
+        return {
+            "name": self.name,
+            "parameters": self.state.parameters.copy(),
+            "frame_count": self.state.frame_count,
+            "is_transitioning": self.state.is_transitioning,
+            "metrics": {
+                "generation_time_ms": self.state.metrics.generation_time_ms,
+                "state_update_time_ms": self.state.metrics.state_update_time_ms,
+                "frame_count": self.state.metrics.frame_count,
+                "error_count": self.state.metrics.error_count,
+                "last_error": self.state.metrics.last_error,
+                "parameter_updates": self.state.metrics.parameter_updates,
+            },
+        }

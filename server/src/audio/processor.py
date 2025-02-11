@@ -4,6 +4,7 @@ import time
 from typing import Any, Callable, Dict, Optional
 
 import numpy as np
+from dataclasses import dataclass
 
 from .buffer.circular import CircularAudioBuffer
 from .devices import AudioDeviceManager
@@ -11,6 +12,18 @@ from .pipelines.analysis import AnalysisPipeline
 from .pipelines.base import PipelineConfig
 from .pipelines.realtime import RealtimePipeline
 from .state.manager import StateManager
+
+
+@dataclass
+class AudioFeatures:
+    """Audio analysis features"""
+
+    volume: float
+    beat_detected: bool
+    onset_detected: bool
+    spectral_centroid: float
+    spectral_rolloff: float
+    spectral_flux: float
 
 
 class AudioProcessor:
@@ -212,3 +225,47 @@ class AudioProcessor:
     def __del__(self) -> None:
         """Ensure cleanup on deletion"""
         self.cleanup()
+
+    def process(self, samples: np.ndarray) -> AudioFeatures:
+        """Process audio samples and extract features"""
+        # Calculate volume (RMS)
+        volume = np.sqrt(np.mean(samples**2))
+
+        # Calculate spectrum
+        spectrum = np.abs(
+            np.fft.rfft(samples.mean(axis=1) if len(samples.shape) > 1 else samples)
+        )
+
+        # Spectral features
+        freqs = np.fft.rfftfreq(len(samples), 1 / self.config.sample_rate)
+        spectral_centroid = np.sum(freqs * spectrum) / (np.sum(spectrum) + 1e-8)
+
+        # Spectral rolloff (95% of energy)
+        cumsum = np.cumsum(spectrum)
+        rolloff_point = np.where(cumsum >= cumsum[-1] * 0.95)[0][0]
+        spectral_rolloff = freqs[rolloff_point]
+
+        # Spectral flux
+        spectral_flux = 0.0
+        if self.audio_buffer.get_latest(int(self.config.sample_rate * 0.1)) is not None:
+            spectral_flux = np.mean(
+                np.abs(
+                    spectrum
+                    - self.audio_buffer.get_latest(int(self.config.sample_rate * 0.1))
+                )
+            )
+
+        # Beat detection (simple threshold-based)
+        beat_detected = volume > 0.3
+
+        # Onset detection (based on spectral flux)
+        onset_detected = spectral_flux > 0.2
+
+        return AudioFeatures(
+            volume=float(volume),
+            beat_detected=beat_detected,
+            onset_detected=onset_detected,
+            spectral_centroid=float(spectral_centroid),
+            spectral_rolloff=float(spectral_rolloff),
+            spectral_flux=float(spectral_flux),
+        )

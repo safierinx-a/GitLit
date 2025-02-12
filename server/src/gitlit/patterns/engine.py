@@ -11,8 +11,9 @@ from fastapi import WebSocket
 from ..core.websocket_manager import manager as ws_manager
 from ..core.exceptions import ValidationError, PatternError
 from ..core.timing import TimeState, TimingConstraints
+from ..common.patterns import determine_pattern_category
 from .config import PatternConfig, PatternState
-from .base import BasePattern, ModifiableAttribute, ParameterSpec, PatternMetrics
+from .base import BasePattern, ModifiableAttribute, Parameter, PatternMetrics
 from .modifiers.base import BaseModifier
 from .types import (
     BreathePattern,
@@ -41,13 +42,32 @@ class EngineMetrics:
     transition_count: int = 0
     error_count: int = 0
     last_error: str = ""
+    last_error_time: float = 0.0
+    error_history: List[Dict[str, Any]] = field(default_factory=list)
     pattern_metrics: Dict[str, PatternMetrics] = field(default_factory=dict)
 
-    def record_error(self, error: str) -> None:
-        """Record an error occurrence"""
+    def record_error(self, error: str, error_type: Optional[str] = None) -> None:
+        """Record an error occurrence with additional context"""
         self.error_count += 1
         self.last_error = error
-        logger.error(f"Pattern engine error: {error}")
+        self.last_error_time = time.time()
+
+        # Keep track of error history (last 10 errors)
+        error_entry = {
+            "timestamp": self.last_error_time,
+            "message": error,
+            "type": error_type or "unknown",
+            "pattern": self.current_pattern,
+        }
+        self.error_history.append(error_entry)
+        if len(self.error_history) > 10:
+            self.error_history.pop(0)
+
+        # Log with appropriate severity
+        if isinstance(error, (ValidationError, PatternError)):
+            logger.warning(f"Pattern engine error: {error}")
+        else:
+            logger.error(f"Pattern engine error: {error}", exc_info=True)
 
 
 @dataclass
@@ -320,7 +340,7 @@ class PatternEngine:
                     "name": name,
                     "description": pattern_class.description,
                     "parameters": {},
-                    "category": self._determine_pattern_category(name),
+                    "category": determine_pattern_category(name),
                     "supports_audio": hasattr(pattern_class, "process_audio"),
                     "supports_transitions": True,  # All patterns support transitions
                 }
@@ -343,20 +363,6 @@ class PatternEngine:
                 continue
 
         return patterns
-
-    def _determine_pattern_category(self, pattern_name: str) -> str:
-        """Determine pattern category based on name"""
-        static_patterns = {"solid", "gradient"}
-        moving_patterns = {"wave", "rainbow", "chase", "scan"}
-        particle_patterns = {"twinkle", "meteor", "breathe"}
-
-        if pattern_name in static_patterns:
-            return "static"
-        elif pattern_name in moving_patterns:
-            return "moving"
-        elif pattern_name in particle_patterns:
-            return "particle"
-        return "other"
 
     async def get_pattern_info(self, pattern_name: str) -> Optional[Dict[str, Any]]:
         """Get detailed information about a specific pattern"""
@@ -381,7 +387,7 @@ class PatternEngine:
                     }
                     for param in pattern_class.parameters
                 },
-                "category": self._determine_pattern_category(pattern_name),
+                "category": determine_pattern_category(pattern_name),
                 "supports_audio": hasattr(pattern_class, "process_audio"),
                 "supports_transitions": True,
                 "state": test_instance.get_state()

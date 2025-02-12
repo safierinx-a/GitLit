@@ -1,5 +1,4 @@
 from typing import Any, Dict, List, Optional, Union
-from enum import Enum
 import logging
 
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -7,6 +6,7 @@ from pydantic import BaseModel, Field, validator
 
 from ..core.control import SystemController
 from ..core.exceptions import ValidationError
+from ..common.patterns import PatternCategory, determine_pattern_category
 from ..patterns.base import BasePattern
 from .models import (
     PatternRequest,
@@ -20,10 +20,8 @@ from .models import (
     ErrorResponse,
     PatternDefinition,
     ModifierDefinition,
-    PatternCategory,
+    Parameter,
     ModifierCategory,
-    ParameterType,
-    ParameterSpec,
     TransitionRequest,
 )
 
@@ -62,10 +60,10 @@ async def _register_patterns():
         for pattern in patterns:
             pattern_def = PatternDefinition(
                 name=pattern["name"],
-                category=pattern["category"],
+                category=determine_pattern_category(pattern["name"]),
                 description=pattern["description"],
                 parameters=[
-                    ParameterSpec(
+                    Parameter(
                         name=name,
                         type=param["type"],
                         default=param.get("default"),
@@ -100,26 +98,11 @@ def _register_modifiers():
         modifier_registry.register_modifier(modifier_def)
 
 
-def _determine_category_from_name(pattern_name: str) -> PatternCategory:
-    """Determine pattern category based on pattern name"""
-    static_patterns = {"solid", "gradient"}
-    moving_patterns = {"wave", "rainbow", "chase", "scan"}
-    particle_patterns = {"twinkle", "meteor", "breathe"}
-
-    if pattern_name in static_patterns:
-        return PatternCategory.STATIC
-    elif pattern_name in moving_patterns:
-        return PatternCategory.MOVING
-    elif pattern_name in particle_patterns:
-        return PatternCategory.PARTICLE
-    return PatternCategory.OTHER
-
-
 def _determine_modifier_category(modifier_name: str) -> ModifierCategory:
-    """Determine modifier category based on name and characteristics"""
-    effect_modifiers = {"brightness", "speed", "direction", "color", "strobe", "fade"}
-    audio_modifiers = {"volume", "beat", "spectrum"}
-    composite_modifiers = {"multi", "transition", "sequence"}
+    """Determine modifier category based on name"""
+    effect_modifiers = {"brightness", "speed", "direction", "color", "mirror"}
+    audio_modifiers = {"beat", "spectrum", "frequency"}
+    composite_modifiers = {"stack", "blend", "sequence"}
 
     if modifier_name in effect_modifiers:
         return ModifierCategory.EFFECT
@@ -135,26 +118,49 @@ def _validate_parameters(
 ) -> Dict[str, Any]:
     """Validate parameters against pattern specs"""
     validated = {}
+
+    # Check for unknown parameters
+    unknown_params = set(params.keys()) - {spec.name for spec in pattern_def.parameters}
+    if unknown_params:
+        raise ValidationError(f"Unknown parameters: {', '.join(unknown_params)}")
+
     for spec in pattern_def.parameters:
         value = params.get(spec.name, spec.default)
+
+        # Required parameter check
         if value is None and spec.default is None:
             raise ValidationError(f"Missing required parameter: {spec.name}")
 
-        # Type validation
+        # Skip validation if using default value
+        if value is None:
+            validated[spec.name] = spec.default
+            continue
+
+        # Type validation with detailed error message
         try:
-            value = spec.type(value)
+            if spec.type == "color":
+                if not isinstance(value, dict) or not all(
+                    k in value for k in ["red", "green", "blue"]
+                ):
+                    raise ValidationError(
+                        f"Invalid color format for {spec.name}. Expected {{red, green, blue}} dict"
+                    )
+                validated[spec.name] = value
+            else:
+                value = spec.type(value)
+                validated[spec.name] = value
         except (ValueError, TypeError):
             raise ValidationError(
-                f"Invalid type for {spec.name}: expected {spec.type.__name__}"
+                f"Invalid type for {spec.name}: expected {spec.type}, got {type(value).__name__}"
             )
 
-        # Range validation
+        # Range validation with units in error message
         if spec.min_value is not None and value < spec.min_value:
-            raise ValidationError(f"{spec.name} must be >= {spec.min_value}")
+            units_str = f" {spec.units}" if spec.units else ""
+            raise ValidationError(f"{spec.name} must be >= {spec.min_value}{units_str}")
         if spec.max_value is not None and value > spec.max_value:
-            raise ValidationError(f"{spec.name} must be <= {spec.max_value}")
-
-        validated[spec.name] = value
+            units_str = f" {spec.units}" if spec.units else ""
+            raise ValidationError(f"{spec.name} must be <= {spec.max_value}{units_str}")
 
     return validated
 

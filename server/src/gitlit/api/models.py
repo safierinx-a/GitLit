@@ -48,38 +48,15 @@ class ParameterMetadata(BaseModel):
 
 
 class Parameter(BaseModel):
-    """A pattern parameter value"""
+    """Pattern parameter definition"""
 
-    type: ParameterType
-    value: Any
-
-    @validator("value")
-    def validate_value(cls, v, values):
-        param_type = values.get("type")
-        if param_type == ParameterType.COLOR:
-            if not isinstance(v, dict) or not all(
-                k in v for k in ["red", "green", "blue"]
-            ):
-                raise ValueError("Color must have red, green, and blue components")
-            for component in ["red", "green", "blue"]:
-                if not 0 <= v[component] <= 255:
-                    raise ValueError(f"Color {component} must be between 0 and 255")
-        elif param_type == ParameterType.NUMBER:
-            if not isinstance(v, (int, float)):
-                raise ValueError("Number must be integer or float")
-        elif param_type == ParameterType.BOOLEAN:
-            if not isinstance(v, bool):
-                raise ValueError("Value must be boolean")
-        elif param_type == ParameterType.POSITION:
-            if not isinstance(v, (int, float)) or not 0 <= v <= 1:
-                raise ValueError("Position must be between 0 and 1")
-        elif param_type == ParameterType.SPEED:
-            if not isinstance(v, (int, float)) or v <= 0:
-                raise ValueError("Speed must be greater than 0")
-        elif param_type == ParameterType.PERCENTAGE:
-            if not isinstance(v, (int, float)) or not 0 <= v <= 100:
-                raise ValueError("Percentage must be between 0 and 100")
-        return v
+    name: str
+    type: str
+    default: Any
+    min_value: Optional[Any] = None
+    max_value: Optional[Any] = None
+    description: str = ""
+    units: str = ""
 
 
 # Pattern Models
@@ -125,12 +102,12 @@ class PatternRequest(BaseModel):
 
 
 class PatternDefinition(BaseModel):
-    """Pattern definition with enhanced metadata"""
+    """Pattern definition with metadata"""
 
     name: str
-    category: str
-    description: str
-    parameters: List[ParameterSpec]
+    category: PatternCategory
+    description: str = ""
+    parameters: List[Parameter]
     supports_audio: bool = False
     supports_transitions: bool = True
     preview_url: Optional[str] = None  # URL to pattern preview animation

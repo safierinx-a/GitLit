@@ -62,20 +62,17 @@ T = TypeVar("T")
 class Command(Generic[T]):
     """Base command class"""
 
+    # Required parameters
+    validate: Callable[[CommandContext], bool]
+    execute: Callable[[CommandContext], T]
+
+    # Optional parameters with defaults
     id: str = field(default_factory=lambda: str(uuid4()))
     priority: CommandPriority = CommandPriority.NORMAL
     timestamp: float = field(default_factory=time.time)
     status: CommandStatus = CommandStatus.PENDING
-
-    # Validation and execution functions
-    validate: Callable[[CommandContext], bool]
-    execute: Callable[[CommandContext], T]
-
-    # Optional callbacks
     on_success: Optional[Callable[[T], None]] = None
     on_failure: Optional[Callable[[str], None]] = None
-
-    # Result tracking
     result: Optional[CommandResult] = None
 
     def __post_init__(self):

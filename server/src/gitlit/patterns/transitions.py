@@ -5,6 +5,46 @@ import numpy as np
 from .base import BasePattern
 
 
+class Transition:
+    """Base class for pattern transitions"""
+
+    def __init__(self, duration_ms: float = 500.0):
+        self.duration_ms = duration_ms
+        self.progress = 0.0
+
+    def reset(self) -> None:
+        """Reset transition progress"""
+        self.progress = 0.0
+
+    def update(self, delta_ms: float) -> bool:
+        """Update transition progress and return True if complete"""
+        self.progress = min(1.0, self.progress + (delta_ms / self.duration_ms))
+        return self.progress >= 1.0
+
+    def blend(self, from_frame: np.ndarray, to_frame: np.ndarray) -> np.ndarray:
+        """Blend between two frames based on transition progress"""
+        raise NotImplementedError
+
+
+class CrossFadeTransition(Transition):
+    """Smooth crossfade between patterns"""
+
+    def blend(self, from_frame: np.ndarray, to_frame: np.ndarray) -> np.ndarray:
+        """Linear interpolation between frames"""
+        return from_frame * (1 - self.progress) + to_frame * self.progress
+
+
+class InstantTransition(Transition):
+    """Immediate switch between patterns"""
+
+    def __init__(self):
+        super().__init__(duration_ms=0)
+
+    def blend(self, from_frame: np.ndarray, to_frame: np.ndarray) -> np.ndarray:
+        """Return target frame immediately"""
+        return to_frame
+
+
 class TransitionManager:
     """Manages smooth transitions between patterns"""
 

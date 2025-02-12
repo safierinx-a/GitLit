@@ -14,7 +14,7 @@ from . import control, websocket
 logger = logging.getLogger(__name__)
 
 
-def init_app() -> FastAPI:
+def init_app(controller: Optional[SystemController] = None) -> FastAPI:
     """Create and configure the FastAPI application"""
     app = FastAPI(
         title="GitLit Control API",
@@ -32,8 +32,8 @@ def init_app() -> FastAPI:
     )
 
     # Global instances
-    app.state.system_controller = None
-    app.state.startup_complete = False
+    app.state.system_controller = controller
+    app.state.startup_complete = controller is not None
 
     def get_controller() -> SystemController:
         """Dependency injection for system controller"""

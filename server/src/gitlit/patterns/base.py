@@ -55,11 +55,8 @@ class Parameter:
                 value = self.max_value
 
             return value
-
         except (ValueError, TypeError) as e:
-            raise ValidationError(
-                f"Invalid value for parameter {self.name}: {value}. {str(e)}"
-            )
+            raise ValidationError(f"Invalid value for {self.name}: {value} ({str(e)})")
 
 
 @dataclass
@@ -136,106 +133,20 @@ class PatternState:
 
 
 class BasePattern(ABC):
-    """Base class for all patterns with improved state management"""
+    """Base class for all patterns"""
 
-    # Class-level pattern metadata
-    name: ClassVar[str] = ""
-    description: ClassVar[str] = ""
+    name: str = "base"
+    description: str = "Base pattern class"
     parameters: ClassVar[List[Parameter]] = []
 
-    def __init__(self, num_leds: int):
+    def __init__(self, led_count: int):
         """Initialize pattern"""
-        self.num_leds = num_leds
+        self.led_count = led_count
+        self.frame_buffer = np.zeros((led_count, 3), dtype=np.uint8)
         self.state = PatternState()
-        self.frame_buffer = np.zeros((num_leds, 3), dtype=np.uint8)
-        self._last_valid_frame = None
-
-        # Initialize with default parameters
-        self._init_parameters()
-
-    def _init_parameters(self) -> None:
-        """Initialize pattern parameters with defaults"""
-        self.state.parameters = {param.name: param.default for param in self.parameters}
-
-    async def update_parameters(self, params: Dict[str, Any]) -> None:
-        """Update pattern parameters with validation"""
-        start_time = time.perf_counter()
-        try:
-            # Validate parameters
-            validated = {}
-            for name, value in params.items():
-                param_def = self._get_parameter_def(name)
-                if param_def:
-                    validated[name] = param_def.validate(value)
-                else:
-                    logger.warning(f"Unknown parameter: {name}")
-
-            # Update state
-            self.state.parameters.update(validated)
-            self.state.metrics.parameter_updates += 1
-
-            # Test generate one frame
-            test_frame = await self.generate(time.perf_counter() * 1000)
-            if test_frame is None:
-                raise ValidationError(
-                    "Failed to generate test frame with new parameters"
-                )
-
-        except Exception as e:
-            self.state.metrics.error_count += 1
-            self.state.metrics.last_error = str(e)
-            raise
-
-        finally:
-            self.state.metrics.state_update_time_ms = (
-                time.perf_counter() - start_time
-            ) * 1000
-
-    def _get_parameter_def(self, name: str) -> Optional[Parameter]:
-        """Get parameter definition by name"""
-        return next((p for p in self.parameters if p.name == name), None)
-
-    async def generate(self, time_ms: float) -> Optional[np.ndarray]:
-        """Generate pattern frame with error handling"""
-        start_time = time.perf_counter()
-
-        try:
-            # Update state
-            self.state.update(time_ms / 1000.0)
-
-            # Generate frame
-            frame = await self._generate(time_ms)
-
-            # Validate frame
-            if frame is None:
-                raise PatternError("Pattern generated None frame")
-            if not isinstance(frame, np.ndarray):
-                raise PatternError(f"Invalid frame type: {type(frame)}")
-            if frame.shape != (self.num_leds, 3):
-                raise PatternError(
-                    f"Invalid frame shape: {frame.shape}, expected ({self.num_leds}, 3)"
-                )
-
-            # Store last valid frame
-            self._last_valid_frame = frame.copy()
-
-            # Ensure frame values are in valid range
-            return np.clip(frame, 0, 255).astype(np.uint8)
-
-        except Exception as e:
-            self.state.metrics.error_count += 1
-            self.state.metrics.last_error = str(e)
-            logger.error(f"Frame generation failed: {e}")
-            return (
-                self._last_valid_frame
-                if self._last_valid_frame is not None
-                else np.zeros((self.num_leds, 3), dtype=np.uint8)
-            )
-
-        finally:
-            self.state.metrics.generation_time_ms = (
-                time.perf_counter() - start_time
-            ) * 1000
+        self.state.cached_data = {}  # Initialize cached_data dict
+        self.metrics = PatternMetrics()
+        self.timing = TimeState()
 
     @abstractmethod
     async def _generate(self, time_ms: float) -> np.ndarray:

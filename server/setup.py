@@ -25,6 +25,7 @@ setup(
     extras_require={
         "dev": [
             "pytest>=7.4.3",
+            "pytest-asyncio>=0.23.0",  # Required for async tests
             "black>=23.11.0",
             "isort>=5.12.0",
             "mypy>=1.7.1",

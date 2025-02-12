@@ -121,9 +121,8 @@ def init_app(controller: Optional[SystemController] = None) -> FastAPI:
         return {
             "status": "healthy" if app.state.startup_complete else "starting",
             "controller": app.state.system_controller is not None,
-            "patterns_active": app.state.system_controller.is_running
-            if app.state.system_controller
-            else False,
+            "patterns_active": app.state.startup_complete
+            and app.state.system_controller is not None,
         }
 
     return app

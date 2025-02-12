@@ -10,13 +10,27 @@ from gitlit.core.control import SystemController
 
 
 @pytest.fixture
-async def controller():
-    """Create a test controller"""
+async def async_controller():
+    """Create a test controller for async tests"""
     config = SystemConfig.create_default()
     controller = SystemController(config)
     await controller.start()
     yield controller
     await controller.stop()
+
+
+@pytest.fixture
+def controller():
+    """Create a test controller for sync tests"""
+    import asyncio
+
+    config = SystemConfig.create_default()
+    controller = SystemController(config)
+    # Run start synchronously
+    asyncio.get_event_loop().run_until_complete(controller.start())
+    yield controller
+    # Run stop synchronously
+    asyncio.get_event_loop().run_until_complete(controller.stop())
 
 
 @pytest.fixture
@@ -97,7 +111,7 @@ class TestAPIEndpoints:
 class TestWebSocket:
     """Test WebSocket functionality"""
 
-    async def test_websocket_connection(self, client):
+    async def test_websocket_connection(self, client, async_controller):
         """Test WebSocket connection"""
         with client.websocket_connect("/ws") as websocket:
             # Should receive initial state
@@ -105,7 +119,7 @@ class TestWebSocket:
             assert "type" in data
             assert data["type"] == "state"
 
-    async def test_frame_broadcast(self, client):
+    async def test_frame_broadcast(self, client, async_controller):
         """Test frame broadcasting"""
         with client.websocket_connect("/ws") as websocket:
             # Set a pattern to trigger frame generation
@@ -131,10 +145,10 @@ class TestErrorHandling:
         data = response.json()
         assert "detail" in data
 
-    async def test_system_errors(self, client, controller):
+    async def test_system_errors(self, client, async_controller):
         """Test system error handling"""
         # Stop the system
-        await controller.stop()
+        await async_controller.stop()
 
         # Try to set pattern while stopped
         response = client.post(

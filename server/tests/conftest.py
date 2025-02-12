@@ -4,6 +4,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+# Configure pytest-asyncio
+pytest.register_assert_rewrite("pytest_asyncio")
+pytestmark = pytest.mark.asyncio
+
 # Get the project root directory (server)
 server_dir = Path(__file__).parent.parent.absolute()
 

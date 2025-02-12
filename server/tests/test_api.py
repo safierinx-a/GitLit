@@ -4,9 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 from fastapi.websockets import WebSocket
 
-from src.api.app import app, init_app
-from src.core.config import SystemConfig
-from src.core.exceptions import ValidationError
+from gitlit.api.app import app, init_app
+from gitlit.core.config import SystemConfig
+from gitlit.core.exceptions import ValidationError
 
 
 @pytest.fixture

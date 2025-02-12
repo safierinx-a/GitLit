@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_namespace_packages
 import os
 
 # Read README.md if it exists
@@ -10,7 +10,8 @@ if os.path.exists("README.md"):
 setup(
     name="gitlit-server",
     version="0.1.0",
-    packages=find_packages(),
+    packages=find_namespace_packages(where="src"),
+    package_dir={"": "src"},
     install_requires=[
         "fastapi>=0.104.1",
         "uvicorn>=0.24.0",
@@ -27,6 +28,7 @@ setup(
             "black>=23.11.0",
             "isort>=5.12.0",
             "mypy>=1.7.1",
+            "httpx>=0.24.0",  # Required for FastAPI testing
         ]
     },
     python_requires=">=3.10",

@@ -200,9 +200,6 @@ class BasePattern(ABC):
         start_time = time.perf_counter()
 
         try:
-            # Import TimeState here to avoid circular import
-            from ..core.timing import TimeState
-
             # Update state
             self.state.update(time_ms / 1000.0)
 

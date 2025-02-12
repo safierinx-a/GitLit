@@ -5,12 +5,12 @@ import pytest
 import numpy as np
 from fastapi.testclient import TestClient
 
-from src.core.config import SystemConfig
-from src.core.control import SystemController
-from src.core.state import SystemState
-from src.core.commands import CommandQueue, SetPatternCommand
-from src.core.frame_manager import FrameManager, FrameMetrics
-from src.core.exceptions import ValidationError
+from gitlit.core.config import SystemConfig
+from gitlit.core.control import SystemController
+from gitlit.core.state import SystemState
+from gitlit.core.commands import CommandQueue, SetPatternCommand
+from gitlit.core.frame_manager import FrameManager, FrameMetrics
+from gitlit.core.exceptions import ValidationError
 
 
 @pytest.fixture

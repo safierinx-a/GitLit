@@ -11,18 +11,18 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(project_root)
 
 import yaml
-from src.patterns.base import BasePattern
-from src.patterns.engine import PatternEngine
-from src.patterns.types.static.solid import SolidPattern
-from src.patterns.types.static.gradient import GradientPattern
-from src.patterns.types.wave import WavePattern
-from src.patterns.types.rainbow import RainbowPattern
-from src.patterns.types.chase import ChasePattern
-from src.patterns.types.scan import ScanPattern
-from src.patterns.types.twinkle import TwinklePattern
-from src.patterns.types.meteor import MeteorPattern
-from src.patterns.types.breathe import BreathePattern
-from src.core.exceptions import ValidationError
+from gitlit.patterns.base import BasePattern
+from gitlit.patterns.engine import PatternEngine
+from gitlit.patterns.types.static.solid import SolidPattern
+from gitlit.patterns.types.static.gradient import GradientPattern
+from gitlit.patterns.types.wave import WavePattern
+from gitlit.patterns.types.rainbow import RainbowPattern
+from gitlit.patterns.types.chase import ChasePattern
+from gitlit.patterns.types.scan import ScanPattern
+from gitlit.patterns.types.twinkle import TwinklePattern
+from gitlit.patterns.types.meteor import MeteorPattern
+from gitlit.patterns.types.breathe import BreathePattern
+from gitlit.core.exceptions import ValidationError
 
 import pytest
 import numpy as np

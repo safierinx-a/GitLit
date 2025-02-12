@@ -1,89 +1,68 @@
-import math
-from typing import Any, Dict, List
+"""Breathing light pattern implementation."""
 
 import numpy as np
+from typing import List
 
-from ...base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
+from ...base import BasePattern, ColorSpec, Parameter
 
 
 class BreathePattern(BasePattern):
-    """Smooth breathing effect that pulses the entire strip"""
+    """Smooth breathing light effect"""
 
-    @classmethod
-    @property
-    def parameters(cls) -> List[ParameterSpec]:
-        return [
-            ParameterSpec(
-                name="speed",
-                type=float,
-                default=1.0,
-                min_value=0.1,
-                max_value=5.0,
-                description="Breathing speed",
-                units="Hz",
-            ),
-            ParameterSpec(
-                name="min_brightness",
-                type=float,
-                default=0.0,
-                min_value=0.0,
-                max_value=1.0,
-                description="Minimum brightness",
-            ),
-            ParameterSpec(
-                name="max_brightness",
-                type=float,
-                default=1.0,
-                min_value=0.0,
-                max_value=1.0,
-                description="Maximum brightness",
-            ),
-            ParameterSpec(
-                name="curve",
-                type=str,
-                default="sine",
-                description="Breathing curve type",
-                options=["sine", "triangle", "exponential"],
-            ),
-            ParameterSpec(
-                name="hold_time",
-                type=float,
-                default=0.0,
-                min_value=0.0,
-                max_value=1.0,
-                description="Time to hold at peaks",
-            ),
-            ColorSpec(name="red", description="Red component of color"),
-            ColorSpec(name="green", description="Green component of color"),
-            ColorSpec(name="blue", description="Blue component of color"),
-        ]
+    name = "breathe"
+    description = "Smooth breathing light effect"
 
-    def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
-        min_bright = params.get("min_brightness", 0.0)
-        max_bright = params.get("max_brightness", 1.0)
-        curve = params.get("curve", "sine")
-        hold_time = params.get("hold_time", 0.0)
-        color = np.array(
-            [params.get("red", 255), params.get("green", 255), params.get("blue", 255)],
-            dtype=np.uint8,
-        )
+    parameters = [
+        ColorSpec(name="red", description="Red component"),
+        ColorSpec(name="green", description="Green component"),
+        ColorSpec(name="blue", description="Blue component"),
+        Parameter(
+            name="speed",
+            type=float,
+            default=1.0,
+            min_value=0.1,
+            max_value=5.0,
+            description="Breathing speed",
+            units="Hz",
+        ),
+        Parameter(
+            name="min_brightness",
+            type=float,
+            default=0.0,
+            min_value=0.0,
+            max_value=1.0,
+            description="Minimum brightness",
+        ),
+        Parameter(
+            name="max_brightness",
+            type=float,
+            default=1.0,
+            min_value=0.0,
+            max_value=1.0,
+            description="Maximum brightness",
+        ),
+    ]
 
-        t = self.timing.get_phase()
+    async def _generate(self, time_ms: float) -> np.ndarray:
+        """Generate breathing pattern frame"""
+        # Get parameters from state
+        speed = self.state.parameters.get("speed", 1.0)
+        min_bright = self.state.parameters.get("min_brightness", 0.0)
+        max_bright = self.state.parameters.get("max_brightness", 1.0)
 
-        if curve == "sine":
-            brightness = (math.sin(t * 2 * math.pi) + 1) / 2
-        elif curve == "triangle":
-            brightness = 1.0 - abs(2.0 * t - 1.0)
-        else:  # exponential
-            if t < 0.5:
-                brightness = math.pow(t * 2, 2)
-            else:
-                brightness = math.pow((1.0 - t) * 2, 2)
+        # Get color components
+        red = self.state.parameters.get("red", 255)
+        green = self.state.parameters.get("green", 0)
+        blue = self.state.parameters.get("blue", 0)
+        color = np.array([red, green, blue], dtype=np.uint8)
 
-        if hold_time > 0:
-            if abs(brightness - 1.0) < 0.1 or abs(brightness) < 0.1:
-                brightness = round(brightness)
-
+        # Calculate brightness using sine wave
+        t = (time_ms / 1000.0) * speed
+        brightness = (np.sin(t * 2 * np.pi) + 1) / 2  # 0 to 1
         brightness = min_bright + (max_bright - min_bright) * brightness
+
+        # Apply brightness to color
+        self.frame_buffer.fill(0)
         self.frame_buffer[:] = (color * brightness).astype(np.uint8)
+
         return self.frame_buffer

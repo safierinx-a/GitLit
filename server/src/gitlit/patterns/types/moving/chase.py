@@ -2,86 +2,94 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from ...base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
+from ...base import BasePattern, ColorSpec, Parameter
 
 
 class ChasePattern(BasePattern):
     """Moving dots that chase each other along the strip"""
 
-    @classmethod
-    @property
-    def parameters(cls) -> List[ParameterSpec]:
-        return [
-            ParameterSpec(
-                name="speed",
-                type=float,
-                default=1.0,
-                min_value=0.1,
-                max_value=5.0,
-                description="Chase speed",
-                units="Hz",
-            ),
-            ParameterSpec(
-                name="count",
-                type=int,
-                default=3,
-                min_value=1,
-                max_value=10,
-                description="Number of chase dots",
-            ),
-            ParameterSpec(
-                name="size",
-                type=int,
-                default=2,
-                min_value=1,
-                max_value=10,
-                description="Size of each dot",
-            ),
-            ColorSpec(name="red", description="Red component of dot color"),
-            ColorSpec(name="green", description="Green component of dot color"),
-            ColorSpec(name="blue", description="Blue component of dot color"),
-            ParameterSpec(
-                name="fade",
-                type=float,
-                default=0.5,
-                min_value=0.0,
-                max_value=1.0,
-                description="Trail fade length",
-            ),
-            ParameterSpec(
-                name="spacing",
-                type=float,
-                default=1.0,
-                min_value=0.1,
-                max_value=2.0,
-                description="Spacing between dots",
-            ),
-        ]
+    name = "chase"
+    description = "Moving dots that chase each other along the strip"
 
-    def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
-        """Generate chase pattern using state"""
-        speed = params.get("speed", 1.0)
-        count = params.get("count", 3)
-        width = params.get("width", 0.2)
-        color = [params.get("red", 255), params.get("green", 0), params.get("blue", 0)]
+    parameters = [
+        Parameter(
+            name="speed",
+            type=float,
+            default=1.0,
+            min_value=0.1,
+            max_value=5.0,
+            description="Chase speed",
+            units="Hz",
+        ),
+        Parameter(
+            name="count",
+            type=int,
+            default=3,
+            min_value=1,
+            max_value=10,
+            description="Number of chase dots",
+        ),
+        Parameter(
+            name="size",
+            type=int,
+            default=2,
+            min_value=1,
+            max_value=10,
+            description="Size of each dot",
+        ),
+        ColorSpec(name="red", description="Red component of dot color"),
+        ColorSpec(name="green", description="Green component of dot color"),
+        ColorSpec(name="blue", description="Blue component of dot color"),
+        Parameter(
+            name="fade",
+            type=float,
+            default=0.5,
+            min_value=0.0,
+            max_value=1.0,
+            description="Trail fade length",
+        ),
+        Parameter(
+            name="spacing",
+            type=float,
+            default=1.0,
+            min_value=0.1,
+            max_value=2.0,
+            description="Spacing between dots",
+        ),
+    ]
 
-        # Calculate spacing between segments
-        spacing = 1.0 / count
+    async def _generate(self, time_ms: float) -> np.ndarray:
+        """Generate chase pattern frame"""
+        # Get parameters from state
+        speed = self.state.parameters.get("speed", 1.0)
+        count = self.state.parameters.get("count", 3)
+        size = self.state.parameters.get("size", 2)
+        fade = self.state.parameters.get("fade", 0.5)
+        spacing = self.state.parameters.get("spacing", 1.0)
 
-        # Use normalized time from state
-        t = self.state.get_normalized_time(time_ms * speed)
+        # Get color components
+        red = self.state.parameters.get("red", 255)
+        green = self.state.parameters.get("green", 0)
+        blue = self.state.parameters.get("blue", 0)
+        color = np.array([red, green, blue], dtype=np.uint8)
 
-        # Generate chase segments
-        for i in range(self.led_count):
-            pos = (i / self.led_count + t) % 1.0
-            for j in range(count):
-                segment_pos = j / count
-                dist = min(abs(pos - segment_pos), abs(pos - segment_pos - 1))
-                if dist < width / 2:
-                    brightness = 1.0 - (dist / (width / 2))
-                    self.frame_buffer[i] = [int(c * brightness) for c in color]
-                    break
-            else:
-                self.frame_buffer[i] = [0, 0, 0]
+        # Calculate positions
+        t = (time_ms / 1000.0) * speed
+        positions = [(i / count + t) % 1.0 for i in range(count)]
+
+        # Initialize frame buffer
+        self.frame_buffer.fill(0)
+
+        # Draw chase dots
+        for pos in positions:
+            # Calculate LED indices affected by this dot
+            center_idx = int(pos * self.num_leds)
+            for i in range(-size, size + 1):
+                idx = (center_idx + i) % self.num_leds
+                # Calculate fade based on distance from center
+                dist = abs(i) / size
+                brightness = 1.0 - (dist * fade)
+                if brightness > 0:
+                    self.frame_buffer[idx] = (color * brightness).astype(np.uint8)
 
         return self.frame_buffer

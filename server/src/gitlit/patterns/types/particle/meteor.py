@@ -2,82 +2,53 @@ import random
 from typing import Any, Dict, List, Tuple
 import numpy as np
 
-from ...base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
+from ...base import BasePattern, ColorSpec, ModifiableAttribute, Parameter
 
 
 class MeteorPattern(BasePattern):
-    """Falling meteor effect with trails and physics"""
+    """Meteor effect with trailing particles"""
 
-    def __init__(self, led_count: int):
-        super().__init__(led_count)
-        self.state.cached_data["meteors"] = []  # [(position, velocity, color, trail)]
-        self.state.cached_data["last_spawn_time"] = 0.0
+    name = "meteor"
+    description = "Meteor effect with trailing particles"
 
-    @classmethod
-    @property
-    def parameters(cls) -> List[ParameterSpec]:
-        return [
-            ParameterSpec(
-                name="speed",
-                type=float,
-                default=1.0,
-                min_value=0.1,
-                max_value=5.0,
-                description="Fall speed",
-                units="Hz",
-            ),
-            ParameterSpec(
-                name="size",
-                type=int,
-                default=3,
-                min_value=1,
-                max_value=10,
-                description="Meteor size",
-            ),
-            ParameterSpec(
-                name="trail_length",
-                type=float,
-                default=0.5,
-                min_value=0.0,
-                max_value=1.0,
-                description="Length of meteor trail",
-            ),
-            ParameterSpec(
-                name="spawn_rate",
-                type=float,
-                default=0.5,
-                min_value=0.1,
-                max_value=2.0,
-                description="New meteor frequency",
-                units="Hz",
-            ),
-            ParameterSpec(
-                name="gravity",
-                type=float,
-                default=9.8,
-                min_value=0.0,
-                max_value=20.0,
-                description="Gravitational acceleration",
-                units="units/s²",
-            ),
-            ColorSpec(name="red", description="Red component of meteor color"),
-            ColorSpec(name="green", description="Green component of meteor color"),
-            ColorSpec(name="blue", description="Blue component of meteor color"),
-            ParameterSpec(
-                name="random_color",
-                type=bool,
-                default=False,
-                description="Randomize meteor colors",
-            ),
-            ParameterSpec(
-                name="direction",
-                type=int,
-                default=1,
-                min_value=-1,
-                max_value=1,
-                description="Meteor direction (-1: up, 1: down)",
-            ),
-        ]
+    parameters = [
+        ColorSpec(name="red", description="Red component"),
+        ColorSpec(name="green", description="Green component"),
+        ColorSpec(name="blue", description="Blue component"),
+        Parameter(
+            name="speed",
+            type=float,
+            default=1.0,
+            min_value=0.1,
+            max_value=5.0,
+            description="Meteor speed",
+            units="Hz",
+        ),
+        Parameter(
+            name="size",
+            type=int,
+            default=3,
+            min_value=1,
+            max_value=10,
+            description="Size of meteor head",
+        ),
+        Parameter(
+            name="trail_length",
+            type=float,
+            default=0.5,
+            min_value=0.0,
+            max_value=1.0,
+            description="Length of meteor trail",
+        ),
+        Parameter(
+            name="decay",
+            type=float,
+            default=0.8,
+            min_value=0.0,
+            max_value=1.0,
+            description="Trail decay rate",
+        ),
+    ]
 
     @classmethod
     @property
@@ -87,7 +58,7 @@ class MeteorPattern(BasePattern):
                 name="spawn",
                 description="Meteor spawning properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="rate_scale",
                         type=float,
                         default=1.0,
@@ -95,7 +66,7 @@ class MeteorPattern(BasePattern):
                         max_value=5.0,
                         description="Spawn rate multiplier",
                     ),
-                    ParameterSpec(
+                    Parameter(
                         name="size_scale",
                         type=float,
                         default=1.0,
@@ -110,7 +81,7 @@ class MeteorPattern(BasePattern):
                 name="motion",
                 description="Meteor motion properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="speed_scale",
                         type=float,
                         default=1.0,
@@ -118,7 +89,7 @@ class MeteorPattern(BasePattern):
                         max_value=5.0,
                         description="Speed multiplier",
                     ),
-                    ParameterSpec(
+                    Parameter(
                         name="gravity_scale",
                         type=float,
                         default=1.0,
@@ -179,8 +150,7 @@ class MeteorPattern(BasePattern):
         speed = params.get("speed", 1.0)
         size = params.get("size", 3)
         trail_length = params.get("trail_length", 0.5)
-        spawn_rate = params.get("spawn_rate", 0.5)
-        gravity = params.get("gravity", 9.8)
+        decay = params.get("decay", 0.8)
         direction = params.get("direction", 1)
 
         # Clear frame
@@ -190,42 +160,23 @@ class MeteorPattern(BasePattern):
         dt = self.timing.delta_time
         current_time = time_ms / 1000.0
 
-        # Spawn new meteors
-        if current_time - self.state.cached_data["last_spawn_time"] > 1.0 / spawn_rate:
-            color = self._get_meteor_color(params)
-            initial_velocity = speed * 10  # Initial velocity scaling
-            self.state.cached_data["meteors"].append(
-                [
-                    0 if direction > 0 else self.led_count - 1,  # Initial position
-                    initial_velocity,
-                    color,
-                    [],  # Trail positions
-                ]
-            )
-            self.state.cached_data["last_spawn_time"] = current_time
+        # Calculate meteor position
+        t = (current_time * speed) % 1.0
+        pos = int(t * self.led_count)
 
-        # Update and draw meteors
-        new_meteors = []
-        for meteor in self.state.cached_data["meteors"]:
-            pos, vel, color, trail = meteor
+        # Draw meteor head
+        for i in range(size):
+            idx = (pos + i) % self.led_count
+            self.frame_buffer[idx] = self._get_meteor_color(params)
 
-            # Update physics
-            vel += gravity * dt * direction
-            new_pos = pos + vel * dt
+        # Draw trail
+        trail_size = int(self.led_count * trail_length)
+        for i in range(trail_size):
+            idx = (pos - i) % self.led_count
+            fade = (1.0 - (i / trail_size)) * decay
+            if fade > 0:
+                self.frame_buffer[idx] = (self._get_meteor_color(params) * fade).astype(
+                    np.uint8
+                )
 
-            # Check if meteor is still on strip
-            if 0 <= new_pos < self.led_count:
-                # Update trail
-                trail.append(pos)
-                if len(trail) > size + int(trail_length * self.led_count):
-                    trail.pop(0)
-
-                # Draw meteor and trail
-                self._draw_meteor(new_pos, size, trail_length, color, direction)
-
-                # Keep meteor
-                new_meteors.append([new_pos, vel, color, trail])
-
-        # Update state
-        self.state.cached_data["meteors"] = new_meteors
         return self.frame_buffer

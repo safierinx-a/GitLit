@@ -2,62 +2,39 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from ...base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
+from ...base import BasePattern, ColorSpec, ModifiableAttribute, Parameter
 
 
 class GradientPattern(BasePattern):
-    """Linear gradient between two colors with enhanced control"""
+    """Two-color gradient pattern"""
 
-    def __init__(self, led_count: int):
-        super().__init__(led_count)
-        self.state.cached_data.update(
-            {
-                "last_color1": [0, 0, 0],
-                "last_color2": [0, 0, 0],
-                "last_position": 0.5,
-                "last_smoothness": 1.0,
-            }
-        )
+    name = "gradient"
+    description = "Smooth transition between two colors"
 
-    @classmethod
-    @property
-    def parameters(cls) -> List[ParameterSpec]:
-        return [
-            ColorSpec(
-                name="color1_r", description="First color red component", default=255
-            ),
-            ColorSpec(
-                name="color1_g", description="First color green component", default=0
-            ),
-            ColorSpec(
-                name="color1_b", description="First color blue component", default=0
-            ),
-            ColorSpec(
-                name="color2_r", description="Second color red component", default=0
-            ),
-            ColorSpec(
-                name="color2_g", description="Second color green component", default=0
-            ),
-            ColorSpec(
-                name="color2_b", description="Second color blue component", default=255
-            ),
-            ParameterSpec(
-                name="position",
-                type=float,
-                default=0.5,
-                min_value=0.0,
-                max_value=1.0,
-                description="Gradient center position",
-            ),
-            ParameterSpec(
-                name="smoothness",
-                type=float,
-                default=1.0,
-                min_value=0.1,
-                max_value=5.0,
-                description="Gradient transition smoothness",
-            ),
-        ]
+    parameters = [
+        ColorSpec(name="color1_r", description="First color red component"),
+        ColorSpec(name="color1_g", description="First color green component"),
+        ColorSpec(name="color1_b", description="First color blue component"),
+        ColorSpec(name="color2_r", description="Second color red component"),
+        ColorSpec(name="color2_g", description="Second color green component"),
+        ColorSpec(name="color2_b", description="Second color blue component"),
+        Parameter(
+            name="position",
+            type=float,
+            default=0.5,
+            min_value=0.0,
+            max_value=1.0,
+            description="Center position of the gradient",
+        ),
+        Parameter(
+            name="width",
+            type=float,
+            default=1.0,
+            min_value=0.1,
+            max_value=2.0,
+            description="Width of the gradient transition",
+        ),
+    ]
 
     @classmethod
     @property
@@ -67,7 +44,7 @@ class GradientPattern(BasePattern):
                 name="color",
                 description="Gradient color properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="hue_shift",
                         type=float,
                         default=0.0,
@@ -75,7 +52,7 @@ class GradientPattern(BasePattern):
                         max_value=1.0,
                         description="Shift the color hue",
                     ),
-                    ParameterSpec(
+                    Parameter(
                         name="saturation",
                         type=float,
                         default=1.0,
@@ -90,7 +67,7 @@ class GradientPattern(BasePattern):
                 name="position",
                 description="Gradient position properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="offset",
                         type=float,
                         default=0.0,
@@ -98,7 +75,7 @@ class GradientPattern(BasePattern):
                         max_value=1.0,
                         description="Position offset",
                     ),
-                    ParameterSpec(
+                    Parameter(
                         name="oscillation",
                         type=float,
                         default=0.0,
@@ -111,43 +88,39 @@ class GradientPattern(BasePattern):
             ),
         ]
 
-    def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
-        """Generate gradient pattern with enhanced control"""
-        # Get colors with validation
+    async def _generate(self, time_ms: float) -> np.ndarray:
+        """Generate gradient pattern frame"""
+        # Get color components from state
         color1 = np.array(
             [
-                params.get("color1_r", 255),
-                params.get("color1_g", 0),
-                params.get("color1_b", 0),
+                self.state.parameters.get("color1_r", 0),
+                self.state.parameters.get("color1_g", 0),
+                self.state.parameters.get("color1_b", 0),
             ],
             dtype=np.float32,
         )
 
         color2 = np.array(
             [
-                params.get("color2_r", 0),
-                params.get("color2_g", 0),
-                params.get("color2_b", 255),
+                self.state.parameters.get("color2_r", 0),
+                self.state.parameters.get("color2_g", 0),
+                self.state.parameters.get("color2_b", 0),
             ],
             dtype=np.float32,
         )
 
-        # Get position and smoothness
-        position = np.clip(params.get("position", 0.5), 0.0, 1.0)
-        smoothness = np.clip(params.get("smoothness", 1.0), 0.1, 5.0)
+        # Get gradient parameters
+        position = self.state.parameters.get("position", 0.5)
+        width = self.state.parameters.get("width", 1.0)
 
-        # Cache current values for transitions
-        self.state.cache_value("last_color1", color1)
-        self.state.cache_value("last_color2", color2)
-        self.state.cache_value("last_position", position)
-        self.state.cache_value("last_smoothness", smoothness)
+        # Calculate gradient
+        positions = np.linspace(0, 1, self.num_leds)
+        distances = np.abs(positions - position)
+        mix = np.clip(distances / width, 0, 1)
 
-        # Generate gradient
-        positions = np.linspace(0, 1, self.led_count)
-        t = 1.0 / (1.0 + np.exp(-(positions - position) * smoothness * 10))
+        # Mix colors based on position
+        self.frame_buffer = (
+            color1[None, :] * (1 - mix[:, None]) + color2[None, :] * mix[:, None]
+        ).astype(np.uint8)
 
-        # Interpolate colors
-        gradient = color1[None, :] * (1 - t[:, None]) + color2[None, :] * t[:, None]
-
-        # Ensure output is uint8
-        return np.clip(gradient, 0, 255).astype(np.uint8)
+        return self.frame_buffer

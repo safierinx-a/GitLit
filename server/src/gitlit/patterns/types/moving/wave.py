@@ -3,11 +3,47 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from ...base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
+from ...base import BasePattern, ColorSpec, ModifiableAttribute, Parameter
 
 
 class WavePattern(BasePattern):
     """Sinusoidal wave pattern"""
+
+    name = "wave"
+    description = "Sinusoidal wave pattern with adjustable properties"
+
+    parameters = [
+        Parameter(
+            name="speed",
+            type=float,
+            default=1.0,
+            min_value=0.1,
+            max_value=5.0,
+            description="Wave movement speed",
+            units="Hz",
+        ),
+        Parameter(
+            name="wavelength",
+            type=float,
+            default=1.0,
+            min_value=0.1,
+            max_value=5.0,
+            description="Length of one complete wave",
+            units="strips",
+        ),
+        ColorSpec(name="red", description="Red component of wave color"),
+        ColorSpec(name="green", description="Green component of wave color"),
+        ColorSpec(name="blue", description="Blue component of wave color"),
+        Parameter(
+            name="amplitude",
+            type=float,
+            default=1.0,
+            min_value=0.1,
+            max_value=5.0,
+            description="Amplitude of the wave",
+            units="",
+        ),
+    ]
 
     def __init__(self, led_count: int):
         super().__init__(led_count)
@@ -19,42 +55,6 @@ class WavePattern(BasePattern):
                 "last_phase": 0.0,
             }
         )
-
-    @classmethod
-    @property
-    def parameters(cls) -> List[ParameterSpec]:
-        return [
-            ParameterSpec(
-                name="speed",
-                type=float,
-                default=1.0,
-                min_value=0.1,
-                max_value=5.0,
-                description="Wave movement speed",
-                units="Hz",
-            ),
-            ParameterSpec(
-                name="wavelength",
-                type=float,
-                default=1.0,
-                min_value=0.1,
-                max_value=5.0,
-                description="Length of one complete wave",
-                units="strips",
-            ),
-            ColorSpec(name="red", description="Red component of wave color"),
-            ColorSpec(name="green", description="Green component of wave color"),
-            ColorSpec(name="blue", description="Blue component of wave color"),
-            ParameterSpec(
-                name="amplitude",
-                type=float,
-                default=1.0,
-                min_value=0.1,
-                max_value=5.0,
-                description="Amplitude of the wave",
-                units="",
-            ),
-        ]
 
     def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
         wavelength = params.get("wavelength", 1.0)

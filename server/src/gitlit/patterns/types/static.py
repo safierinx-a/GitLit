@@ -3,7 +3,64 @@ from typing import Any, Dict, List
 import numpy as np
 
 from ...core.exceptions import ValidationError
-from ..base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
+from ..base import BasePattern, ColorSpec, ModifiableAttribute, Parameter
+
+
+class StaticPattern(BasePattern):
+    """Base class for static patterns"""
+
+    name = "static"
+    description = "Base class for static patterns"
+
+    parameters = [
+        Parameter(
+            name="brightness",
+            type=float,
+            default=1.0,
+            min_value=0.0,
+            max_value=1.0,
+            description="Pattern brightness",
+        ),
+        Parameter(
+            name="transition_time",
+            type=float,
+            default=0.5,
+            min_value=0.0,
+            max_value=5.0,
+            description="Transition time in seconds",
+            units="s",
+        ),
+    ]
+
+    @classmethod
+    @property
+    def modifiable_attributes(cls) -> List[ModifiableAttribute]:
+        return [
+            ModifiableAttribute(
+                name="brightness",
+                description="Pattern brightness",
+                parameter_specs=[
+                    Parameter(
+                        name="value",
+                        type=float,
+                        default=1.0,
+                        min_value=0.0,
+                        max_value=1.0,
+                        description="Brightness value",
+                    ),
+                    Parameter(
+                        name="transition_time",
+                        type=float,
+                        default=0.5,
+                        min_value=0.0,
+                        max_value=5.0,
+                        description="Transition time",
+                        units="s",
+                    ),
+                ],
+                supports_audio=True,
+            )
+        ]
 
 
 class SolidPattern(BasePattern):

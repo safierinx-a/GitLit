@@ -1,12 +1,12 @@
 import math
 import random
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
 from ...core.exceptions import ValidationError
 from ...core.state import PatternState
-from ..base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
+from ..base import BasePattern, ColorSpec, ModifiableAttribute, Parameter
 
 
 class TwinklePattern(BasePattern):
@@ -14,17 +14,17 @@ class TwinklePattern(BasePattern):
 
     def __init__(self, led_count: int):
         super().__init__(led_count)
-        self.state.cached_data["active_twinkles"] = (
-            {}
-        )  # {position: (brightness, color)}
+        self.state.cached_data[
+            "active_twinkles"
+        ] = {}  # {position: (brightness, color)}
         self.state.cached_data["last_density"] = 0.1
         self.state.cached_data["last_fade_speed"] = 1.0
 
     @classmethod
     @property
-    def parameters(cls) -> List[ParameterSpec]:
+    def parameters(cls) -> List[Parameter]:
         return [
-            ParameterSpec(
+            Parameter(
                 name="density",
                 type=float,
                 default=0.1,
@@ -32,7 +32,7 @@ class TwinklePattern(BasePattern):
                 max_value=0.5,
                 description="Probability of new twinkle per frame",
             ),
-            ParameterSpec(
+            Parameter(
                 name="fade_speed",
                 type=float,
                 default=1.0,
@@ -44,7 +44,7 @@ class TwinklePattern(BasePattern):
             ColorSpec(name="red", description="Red component of twinkle color"),
             ColorSpec(name="green", description="Green component of twinkle color"),
             ColorSpec(name="blue", description="Blue component of twinkle color"),
-            ParameterSpec(
+            Parameter(
                 name="random_color",
                 type=bool,
                 default=False,
@@ -60,7 +60,7 @@ class TwinklePattern(BasePattern):
                 name="spawn",
                 description="Twinkle spawning properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="density_scale",
                         type=float,
                         default=1.0,
@@ -75,7 +75,7 @@ class TwinklePattern(BasePattern):
                 name="lifetime",
                 description="Twinkle lifetime properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="fade_scale",
                         type=float,
                         default=1.0,
@@ -131,9 +131,9 @@ class MeteorPattern(BasePattern):
 
     @classmethod
     @property
-    def parameters(cls) -> List[ParameterSpec]:
+    def parameters(cls) -> List[Parameter]:
         return [
-            ParameterSpec(
+            Parameter(
                 name="speed",
                 type=float,
                 default=1.0,
@@ -142,7 +142,7 @@ class MeteorPattern(BasePattern):
                 description="Fall speed",
                 units="Hz",
             ),
-            ParameterSpec(
+            Parameter(
                 name="size",
                 type=int,
                 default=3,
@@ -150,7 +150,7 @@ class MeteorPattern(BasePattern):
                 max_value=10,
                 description="Meteor size",
             ),
-            ParameterSpec(
+            Parameter(
                 name="trail_length",
                 type=float,
                 default=0.5,
@@ -158,7 +158,7 @@ class MeteorPattern(BasePattern):
                 max_value=1.0,
                 description="Length of meteor trail",
             ),
-            ParameterSpec(
+            Parameter(
                 name="spawn_rate",
                 type=float,
                 default=0.5,
@@ -170,7 +170,7 @@ class MeteorPattern(BasePattern):
             ColorSpec(name="red", description="Red component of meteor color"),
             ColorSpec(name="green", description="Green component of meteor color"),
             ColorSpec(name="blue", description="Blue component of meteor color"),
-            ParameterSpec(
+            Parameter(
                 name="random_color",
                 type=bool,
                 default=False,
@@ -186,7 +186,7 @@ class MeteorPattern(BasePattern):
                 name="movement",
                 description="Meteor movement properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="speed_scale",
                         type=float,
                         default=1.0,
@@ -194,7 +194,7 @@ class MeteorPattern(BasePattern):
                         max_value=5.0,
                         description="Speed multiplier",
                     ),
-                    ParameterSpec(
+                    Parameter(
                         name="direction",
                         type=bool,
                         default=True,
@@ -207,7 +207,7 @@ class MeteorPattern(BasePattern):
                 name="spawning",
                 description="Meteor spawning properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="spawn_scale",
                         type=float,
                         default=1.0,

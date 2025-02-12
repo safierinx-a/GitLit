@@ -2,86 +2,73 @@ from typing import Any, Dict, List
 import numpy as np
 import colorsys
 
-from ...base import BasePattern, ModifiableAttribute, ParameterSpec
+from ...base import BasePattern, ModifiableAttribute, Parameter
 
 
 class RainbowPattern(BasePattern):
     """Moving rainbow pattern across the strip with enhanced color control"""
 
-    def __init__(self, led_count: int):
-        super().__init__(led_count)
-        self.state.cached_data.update(
-            {
-                "last_speed": 1.0,
-                "last_scale": 1.0,
-                "last_saturation": 1.0,
-                "last_value": 1.0,
-                "last_offset": 0.0,
-                "last_wave_amplitude": 0.0,
-            }
-        )
+    name = "rainbow"
+    description = "Moving rainbow pattern with enhanced color control"
 
-    @classmethod
-    @property
-    def parameters(cls) -> List[ParameterSpec]:
-        return [
-            ParameterSpec(
-                name="speed",
-                type=float,
-                default=1.0,
-                min_value=0.1,
-                max_value=5.0,
-                description="Rainbow movement speed",
-                units="Hz",
-            ),
-            ParameterSpec(
-                name="scale",
-                type=float,
-                default=1.0,
-                min_value=0.1,
-                max_value=5.0,
-                description="Number of rainbow repetitions",
-                units="cycles",
-            ),
-            ParameterSpec(
-                name="saturation",
-                type=float,
-                default=1.0,
-                min_value=0.0,
-                max_value=1.0,
-                description="Color saturation",
-            ),
-            ParameterSpec(
-                name="value",
-                type=float,
-                default=1.0,
-                min_value=0.0,
-                max_value=1.0,
-                description="Color brightness",
-            ),
-            ParameterSpec(
-                name="offset",
-                type=float,
-                default=0.0,
-                min_value=0.0,
-                max_value=1.0,
-                description="Color wheel offset",
-            ),
-            ParameterSpec(
-                name="reverse",
-                type=bool,
-                default=False,
-                description="Reverse rainbow direction",
-            ),
-            ParameterSpec(
-                name="wave_amplitude",
-                type=float,
-                default=0.0,
-                min_value=0.0,
-                max_value=1.0,
-                description="Wave motion amplitude",
-            ),
-        ]
+    parameters = [
+        Parameter(
+            name="speed",
+            type=float,
+            default=1.0,
+            min_value=0.1,
+            max_value=5.0,
+            description="Rainbow movement speed",
+            units="Hz",
+        ),
+        Parameter(
+            name="scale",
+            type=float,
+            default=1.0,
+            min_value=0.1,
+            max_value=5.0,
+            description="Number of rainbow repetitions",
+            units="cycles",
+        ),
+        Parameter(
+            name="saturation",
+            type=float,
+            default=1.0,
+            min_value=0.0,
+            max_value=1.0,
+            description="Color saturation",
+        ),
+        Parameter(
+            name="value",
+            type=float,
+            default=1.0,
+            min_value=0.0,
+            max_value=1.0,
+            description="Color brightness",
+        ),
+        Parameter(
+            name="offset",
+            type=float,
+            default=0.0,
+            min_value=0.0,
+            max_value=1.0,
+            description="Color wheel offset",
+        ),
+        Parameter(
+            name="reverse",
+            type=bool,
+            default=False,
+            description="Reverse rainbow direction",
+        ),
+        Parameter(
+            name="wave_amplitude",
+            type=float,
+            default=0.0,
+            min_value=0.0,
+            max_value=1.0,
+            description="Wave motion amplitude",
+        ),
+    ]
 
     @classmethod
     @property
@@ -91,7 +78,7 @@ class RainbowPattern(BasePattern):
                 name="color",
                 description="Rainbow color properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="saturation_scale",
                         type=float,
                         default=1.0,
@@ -99,7 +86,7 @@ class RainbowPattern(BasePattern):
                         max_value=2.0,
                         description="Saturation multiplier",
                     ),
-                    ParameterSpec(
+                    Parameter(
                         name="value_scale",
                         type=float,
                         default=1.0,
@@ -114,7 +101,7 @@ class RainbowPattern(BasePattern):
                 name="motion",
                 description="Rainbow motion properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="speed_scale",
                         type=float,
                         default=1.0,
@@ -122,7 +109,7 @@ class RainbowPattern(BasePattern):
                         max_value=5.0,
                         description="Speed multiplier",
                     ),
-                    ParameterSpec(
+                    Parameter(
                         name="wave_amplitude",
                         type=float,
                         default=0.0,
@@ -134,6 +121,19 @@ class RainbowPattern(BasePattern):
                 supports_audio=True,
             ),
         ]
+
+    def __init__(self, led_count: int):
+        super().__init__(led_count)
+        self.state.cached_data.update(
+            {
+                "last_speed": 1.0,
+                "last_scale": 1.0,
+                "last_saturation": 1.0,
+                "last_value": 1.0,
+                "last_offset": 0.0,
+                "last_wave_amplitude": 0.0,
+            }
+        )
 
     def _generate(self, time_ms: float, params: Dict[str, Any]) -> np.ndarray:
         """Generate rainbow pattern with enhanced control"""

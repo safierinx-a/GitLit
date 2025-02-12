@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 import numpy as np
 
 from ...core.exceptions import ValidationError
-from ..base import BasePattern, ColorSpec, ModifiableAttribute, ParameterSpec
+from ..base import BasePattern, ColorSpec, ModifiableAttribute, Parameter
 
 
 class WavePattern(BasePattern):
@@ -45,9 +45,9 @@ class WavePattern(BasePattern):
 
     @classmethod
     @property
-    def parameters(cls) -> List[ParameterSpec]:
+    def parameters(cls) -> List[Parameter]:
         return [
-            ParameterSpec(
+            Parameter(
                 name="speed",
                 type=float,
                 default=1.0,
@@ -56,7 +56,7 @@ class WavePattern(BasePattern):
                 description="Wave movement speed",
                 units="Hz",
             ),
-            ParameterSpec(
+            Parameter(
                 name="wavelength",
                 type=float,
                 default=1.0,
@@ -78,7 +78,7 @@ class WavePattern(BasePattern):
                 name="timing",
                 description="Wave timing properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="speed_scale",
                         type=float,
                         default=1.0,
@@ -86,7 +86,7 @@ class WavePattern(BasePattern):
                         max_value=5.0,
                         description="Speed multiplier",
                     ),
-                    ParameterSpec(
+                    Parameter(
                         name="phase",
                         type=float,
                         default=0.0,
@@ -101,7 +101,7 @@ class WavePattern(BasePattern):
                 name="amplitude",
                 description="Wave amplitude properties",
                 parameter_specs=[
-                    ParameterSpec(
+                    Parameter(
                         name="amplitude_scale",
                         type=float,
                         default=1.0,

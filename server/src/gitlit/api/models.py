@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Union
 from enum import Enum
 from pydantic import BaseModel, Field, validator
-from ..patterns.base import ParameterSpec, ColorSpec, ModifiableAttribute
+from ..patterns.base import Parameter, ColorSpec, ModifiableAttribute
 
 
 # Base Models

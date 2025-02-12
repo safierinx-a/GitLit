@@ -4,9 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 from fastapi.websockets import WebSocket
 
-from server.src.api.app import app, init_app
-from server.src.core.config import SystemConfig
-from server.src.core.exceptions import ValidationError
+from src.api.app import app, init_app
+from src.core.config import SystemConfig
+from src.core.exceptions import ValidationError
 
 
 @pytest.fixture

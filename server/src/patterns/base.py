@@ -6,7 +6,7 @@ import logging
 import numpy as np
 
 from ..common.exceptions import PatternError, ValidationError
-from ..core.timing import TimeState
+from ..common.timing import TimeState
 from .config import PatternState
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ class Parameter:
 
 
 @dataclass
-class ColorSpec(ParameterSpec):
+class ColorSpec(Parameter):
     """Specification for a color parameter"""
 
     def __init__(
@@ -90,7 +90,7 @@ class ModifiableAttribute:
 
     name: str  # e.g., 'color', 'timing', 'position'
     description: str
-    parameter_specs: List[ParameterSpec]  # Parameters this attribute exposes
+    parameter_specs: List[Parameter]  # Parameters this attribute exposes
     supports_audio: bool = False  # Can this be audio reactive?
 
 
@@ -200,6 +200,9 @@ class BasePattern(ABC):
         start_time = time.perf_counter()
 
         try:
+            # Import TimeState here to avoid circular import
+            from ..core.timing import TimeState
+
             # Update state
             self.state.update(time_ms / 1000.0)
 

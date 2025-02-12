@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+"""Tests for pattern functionality."""
+
 import os
 import sys
 import time
@@ -9,24 +11,21 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(project_root)
 
 import yaml
-from src.patterns import (
-    WavePattern,
-    RainbowPattern,
-    ChasePattern,
-    ScanPattern,
-    TwinklePattern,
-    MeteorPattern,
-    BreathePattern,
-)
+from src.patterns.base import BasePattern
+from src.patterns.engine import PatternEngine
+from src.patterns.types.static.solid import SolidPattern
+from src.patterns.types.static.gradient import GradientPattern
+from src.patterns.types.wave import WavePattern
+from src.patterns.types.rainbow import RainbowPattern
+from src.patterns.types.chase import ChasePattern
+from src.patterns.types.scan import ScanPattern
+from src.patterns.types.twinkle import TwinklePattern
+from src.patterns.types.meteor import MeteorPattern
+from src.patterns.types.breathe import BreathePattern
+from src.core.exceptions import ValidationError
 
 import pytest
 import numpy as np
-
-from server.src.patterns.base import BasePattern
-from server.src.patterns.engine import PatternEngine
-from server.src.patterns.types.static.solid import SolidPattern
-from server.src.patterns.types.static.gradient import GradientPattern
-from server.src.core.exceptions import ValidationError
 
 
 def load_config():

@@ -10,7 +10,8 @@ import time
 
 import numpy as np
 
-from ..patterns.base import BasePattern
+from ..common.exceptions import ValidationError, PatternError
+from ..common.timing import TimeState
 from ..patterns.engine import PatternEngine
 from ..patterns.config import PatternConfig, PatternState
 from ..patterns.types import (
@@ -25,7 +26,6 @@ from ..patterns.types import (
     BreathePattern,
 )
 from .config import SystemConfig
-from .exceptions import ValidationError
 from .frame_manager import FrameManager
 from .state import SystemStateManager, SystemState
 from .websocket_manager import manager as ws_manager

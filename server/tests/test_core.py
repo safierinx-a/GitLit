@@ -5,12 +5,12 @@ import pytest
 import numpy as np
 from fastapi.testclient import TestClient
 
-from server.src.core.config import SystemConfig
-from server.src.core.control import SystemController
-from server.src.core.state import SystemState
-from server.src.core.commands import CommandQueue, SetPatternCommand
-from server.src.core.frame_manager import FrameManager, FrameMetrics
-from server.src.core.exceptions import ValidationError
+from src.core.config import SystemConfig
+from src.core.control import SystemController
+from src.core.state import SystemState
+from src.core.commands import CommandQueue, SetPatternCommand
+from src.core.frame_manager import FrameManager, FrameMetrics
+from src.core.exceptions import ValidationError
 
 
 @pytest.fixture

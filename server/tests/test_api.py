@@ -2,23 +2,31 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from fastapi.websockets import WebSocket
 
 from gitlit.api.app import app, init_app
 from gitlit.core.config import SystemConfig
 from gitlit.core.exceptions import ValidationError
-
-
-@pytest.fixture
-def client():
-    """Test client fixture"""
-    return TestClient(app)
+from gitlit.core.control import SystemController
 
 
 @pytest.fixture
 def config():
     """Test configuration"""
     return SystemConfig.create_default()
+
+
+@pytest.fixture
+def controller(config):
+    """Test controller instance"""
+    controller = SystemController(config)
+    return controller
+
+
+@pytest.fixture
+def client(controller):
+    """Test client fixture with initialized system"""
+    init_app(controller)  # Initialize the app with the controller
+    return TestClient(app)
 
 
 class TestAPIEndpoints:
@@ -47,10 +55,16 @@ class TestAPIEndpoints:
 
     def test_set_pattern(self, client):
         """Test pattern setting endpoint"""
-        # Set solid pattern
+        # Set solid pattern with valid parameters
         response = client.post(
             "/api/patterns/solid",
-            json={"parameters": {"red": 255, "green": 0, "blue": 0}},
+            json={
+                "parameters": {
+                    "red": 255,
+                    "green": 0,
+                    "blue": 0,
+                }
+            },
         )
         assert response.status_code == 200
         data = response.json()
@@ -126,5 +140,8 @@ class TestErrorHandling:
         client.post("/api/system/stop")
 
         # Try to set pattern while stopped
-        response = client.post("/api/patterns/solid", json={"parameters": {}})
+        response = client.post(
+            "/api/patterns/solid",
+            json={"parameters": {"red": 255, "green": 0, "blue": 0}},
+        )
         assert response.status_code == 503  # Service Unavailable

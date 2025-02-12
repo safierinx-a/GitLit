@@ -28,17 +28,14 @@ import pytest
 import numpy as np
 
 
-def load_config():
-    config_path = os.path.join(project_root, "config/led_config.yaml")
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    return config["led_strip"]["count"]
+@pytest.fixture
+def led_count(led_config):
+    """Get LED count from config"""
+    return led_config["led_strip"]["count"]
 
 
-def test_patterns():
+def test_patterns(led_count):
     """Test each pattern on the actual LED strip"""
-    led_count = load_config()
-
     patterns = [
         (
             WavePattern(led_count),

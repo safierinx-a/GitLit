@@ -15,13 +15,13 @@ from gitlit.patterns.base import BasePattern
 from gitlit.patterns.engine import PatternEngine
 from gitlit.patterns.types.static.solid import SolidPattern
 from gitlit.patterns.types.static.gradient import GradientPattern
-from gitlit.patterns.types.wave import WavePattern
-from gitlit.patterns.types.rainbow import RainbowPattern
-from gitlit.patterns.types.chase import ChasePattern
-from gitlit.patterns.types.scan import ScanPattern
-from gitlit.patterns.types.twinkle import TwinklePattern
-from gitlit.patterns.types.meteor import MeteorPattern
-from gitlit.patterns.types.breathe import BreathePattern
+from gitlit.patterns.types.moving.wave import WavePattern
+from gitlit.patterns.types.moving.rainbow import RainbowPattern
+from gitlit.patterns.types.moving.chase import ChasePattern
+from gitlit.patterns.types.moving.scan import ScanPattern
+from gitlit.patterns.types.particle.twinkle import TwinklePattern
+from gitlit.patterns.types.particle.meteor import MeteorPattern
+from gitlit.patterns.types.particle.breathe import BreathePattern
 from gitlit.core.exceptions import ValidationError
 
 import pytest

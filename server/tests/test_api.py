@@ -10,22 +10,19 @@ from gitlit.core.control import SystemController
 
 
 @pytest.fixture
-def config():
-    """Test configuration"""
-    return SystemConfig.create_default()
-
-
-@pytest.fixture
-def controller(config):
-    """Test controller instance"""
+async def controller():
+    """Create a test controller"""
+    config = SystemConfig.create_default()
     controller = SystemController(config)
-    return controller
+    await controller.start()
+    yield controller
+    await controller.stop()
 
 
 @pytest.fixture
 def client(controller):
-    """Test client fixture with initialized system"""
-    init_app(controller)  # Initialize the app with the controller
+    """Create a test client with initialized controller"""
+    app = init_app(controller)
     return TestClient(app)
 
 
@@ -134,10 +131,10 @@ class TestErrorHandling:
         data = response.json()
         assert "detail" in data
 
-    def test_system_errors(self, client):
+    async def test_system_errors(self, client, controller):
         """Test system error handling"""
         # Stop the system
-        client.post("/api/system/stop")
+        await controller.stop()
 
         # Try to set pattern while stopped
         response = client.post(

@@ -142,6 +142,7 @@ class BasePattern(ABC):
     def __init__(self, led_count: int):
         """Initialize pattern"""
         self.led_count = led_count
+        self.num_leds = led_count  # For backwards compatibility
         self.frame_buffer = np.zeros((led_count, 3), dtype=np.uint8)
         self.state = PatternState()
         self.state.cached_data = {}  # Initialize cached_data dict
@@ -152,6 +153,14 @@ class BasePattern(ABC):
     async def _generate(self, time_ms: float) -> np.ndarray:
         """Generate pattern frame"""
         pass
+
+    async def generate(
+        self, time_ms: float, params: Optional[Dict[str, Any]] = None
+    ) -> np.ndarray:
+        """Public method to generate a frame"""
+        if params:
+            self.state.parameters.update(params)
+        return await self._generate(time_ms)
 
     def get_state(self) -> Dict[str, Any]:
         """Get pattern state"""

@@ -34,7 +34,7 @@ def led_count(led_config):
     return led_config["led_strip"]["count"]
 
 
-def test_patterns(led_count):
+async def test_patterns(led_count):
     """Test each pattern on the actual LED strip"""
     patterns = [
         (
@@ -82,12 +82,13 @@ def test_patterns(led_count):
         for pattern, params in patterns:
             print(f"\nTesting {pattern.__class__.__name__}...")
             for frame in range(60):  # Run each pattern for 60 frames
-                frame = pattern.generate(frame * 33.3, params)  # ~30fps
-                print(f"Frame {frame}: {frame[:5]}")  # Show first 5 pixels
-                time.sleep(0.033)
-
-    except KeyboardInterrupt:
-        print("\nStopping...")
+                frame_data = await pattern.generate(frame * 33.3, params)  # ~30fps
+                assert frame_data.shape == (led_count, 3)
+                assert frame_data.dtype == np.uint8
+                assert np.all(frame_data >= 0) and np.all(frame_data <= 255)
+    except Exception as e:
+        print(f"Error testing pattern: {e}")
+        raise
 
 
 if __name__ == "__main__":

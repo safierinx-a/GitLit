@@ -9,7 +9,12 @@ from typing import Dict, Any, Optional, List, Set, Callable
 from .config import SystemConfig
 from .exceptions import ValidationError
 from .timing import TimeState, TimingConstraints
-from .transactions import TransactionManager, Transaction, StateChange
+from .transactions import (
+    TransactionManager,
+    Transaction,
+    StateChange,
+    TransactionContext,
+)
 
 logger = logging.getLogger(__name__)
 

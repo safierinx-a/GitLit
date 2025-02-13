@@ -3,10 +3,23 @@ import sys
 from pathlib import Path
 import pytest
 import yaml
+import asyncio
 
 # Configure pytest-asyncio
 pytest.register_assert_rewrite("pytest_asyncio")
+
+# Mark all tests in this directory as async by default
 pytestmark = pytest.mark.asyncio
+
+
+# Configure asyncio for testing
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an instance of the default event loop for each test case."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
 
 # Get the project root directory (server)
 server_dir = Path(__file__).parent.parent.absolute()

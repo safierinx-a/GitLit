@@ -17,33 +17,37 @@ def transaction_manager():
 
 
 @pytest.fixture
-async def async_controller():
+async def async_controller(transaction_manager):
     """Create a test controller for async tests"""
     config = SystemConfig.create_default()
     controller = SystemController(config)
+    controller.state_manager.transaction_manager = transaction_manager
     await controller.start()
     yield controller
     await controller.stop()
 
 
 @pytest.fixture
-def controller():
+def controller(transaction_manager):
     """Create a test controller for sync tests"""
     import asyncio
 
     config = SystemConfig.create_default()
     controller = SystemController(config)
+    controller.state_manager.transaction_manager = transaction_manager
+
     # Run start synchronously
-    asyncio.get_event_loop().run_until_complete(controller.start())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(controller.start())
     yield controller
     # Run stop synchronously
-    asyncio.get_event_loop().run_until_complete(controller.stop())
+    loop.run_until_complete(controller.stop())
 
 
 @pytest.fixture
-def client(controller):
+def client(async_controller):
     """Create a test client with initialized controller"""
-    app = init_app(controller)
+    app = init_app(async_controller)
     return TestClient(app)
 
 
@@ -55,8 +59,9 @@ class TestAPIEndpoints:
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
-        assert "status" in data
-        assert data["status"] in ["healthy", "starting"]
+        assert data["status"] == "healthy"  # Since we're using initialized controller
+        assert data["controller"] is True
+        assert data["patterns_active"] is True
 
     def test_get_patterns(self, client):
         """Test pattern listing endpoint"""
@@ -71,8 +76,11 @@ class TestAPIEndpoints:
         assert "category" in pattern
         assert "parameters" in pattern
 
-    def test_set_pattern(self, client):
+    async def test_set_pattern(self, client, async_controller):
         """Test pattern setting endpoint"""
+        # Ensure controller is ready
+        assert async_controller.is_running
+
         # Set solid pattern with valid parameters
         response = client.post(
             "/api/patterns/solid",
@@ -113,6 +121,8 @@ class TestAPIEndpoints:
             },
         )
         assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
 
 
 class TestWebSocket:
@@ -120,6 +130,9 @@ class TestWebSocket:
 
     async def test_websocket_connection(self, client, async_controller):
         """Test WebSocket connection"""
+        # Ensure controller is ready
+        assert async_controller.is_running
+
         with client.websocket_connect("/ws") as websocket:
             # Should receive initial state
             data = websocket.receive_json()
@@ -128,12 +141,16 @@ class TestWebSocket:
 
     async def test_frame_broadcast(self, client, async_controller):
         """Test frame broadcasting"""
+        # Ensure controller is ready
+        assert async_controller.is_running
+
         with client.websocket_connect("/ws") as websocket:
             # Set a pattern to trigger frame generation
-            client.post(
+            response = client.post(
                 "/api/patterns/solid",
                 json={"parameters": {"red": 255, "green": 0, "blue": 0}},
             )
+            assert response.status_code == 200
 
             # Should receive frames
             data = websocket.receive_bytes()
@@ -163,3 +180,5 @@ class TestErrorHandling:
             json={"parameters": {"red": 255, "green": 0, "blue": 0}},
         )
         assert response.status_code == 503  # Service Unavailable
+        data = response.json()
+        assert "detail" in data

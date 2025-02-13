@@ -81,9 +81,7 @@ def init_app(controller: Optional[SystemController] = None) -> FastAPI:
             # Initialize system controller if not provided
             if app.state.system_controller is None:
                 try:
-                    app.state.system_controller = SystemController(
-                        config, transaction_manager=app.state.transaction_manager
-                    )
+                    app.state.system_controller = SystemController(config)
                     await app.state.system_controller.start()
                     logger.info("System controller started")
 

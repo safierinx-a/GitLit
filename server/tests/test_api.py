@@ -17,22 +17,22 @@ def transaction_manager():
 
 
 @pytest.fixture
-async def async_controller(transaction_manager):
+async def async_controller():
     """Create a test controller for async tests"""
     config = SystemConfig.create_default()
-    controller = SystemController(config, transaction_manager=transaction_manager)
+    controller = SystemController(config)
     await controller.start()
     yield controller
     await controller.stop()
 
 
 @pytest.fixture
-def controller(transaction_manager):
+def controller():
     """Create a test controller for sync tests"""
     import asyncio
 
     config = SystemConfig.create_default()
-    controller = SystemController(config, transaction_manager=transaction_manager)
+    controller = SystemController(config)
     # Run start synchronously
     asyncio.get_event_loop().run_until_complete(controller.start())
     yield controller

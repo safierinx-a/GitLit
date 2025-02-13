@@ -9,6 +9,7 @@ from ..core.config import SystemConfig
 from ..core.control import SystemController
 from ..core.exceptions import ValidationError
 from ..core.websocket_manager import manager as ws_manager
+from ..core.transactions import TransactionManager
 from . import control, websocket
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,9 @@ def init_app(controller: Optional[SystemController] = None) -> FastAPI:
     # Global instances
     app.state.system_controller = controller
     app.state.startup_complete = controller is not None
+    app.state.transaction_manager = (
+        TransactionManager() if controller is None else controller.transaction_manager
+    )
 
     def get_controller() -> SystemController:
         """Dependency injection for system controller"""
@@ -74,23 +78,26 @@ def init_app(controller: Optional[SystemController] = None) -> FastAPI:
                 logger.error(f"Failed to load configuration: {e}")
                 sys.exit(1)
 
-            # Initialize system controller
-            try:
-                app.state.system_controller = SystemController(config)
-                await app.state.system_controller.start()
-                logger.info("System controller started")
+            # Initialize system controller if not provided
+            if app.state.system_controller is None:
+                try:
+                    app.state.system_controller = SystemController(
+                        config, transaction_manager=app.state.transaction_manager
+                    )
+                    await app.state.system_controller.start()
+                    logger.info("System controller started")
 
-                # Start WebSocket manager
-                await ws_manager.start()
-                logger.info("WebSocket manager started")
+                    # Start WebSocket manager
+                    await ws_manager.start()
+                    logger.info("WebSocket manager started")
 
-                # Mark startup as complete
-                app.state.startup_complete = True
-                logger.info("Startup complete")
+                    # Mark startup as complete
+                    app.state.startup_complete = True
+                    logger.info("Startup complete")
 
-            except Exception as e:
-                logger.error(f"Failed to initialize system: {e}")
-                raise
+                except Exception as e:
+                    logger.error(f"Failed to initialize system: {e}")
+                    raise
 
         except Exception as e:
             logger.error(f"Startup failed: {e}")

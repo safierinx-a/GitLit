@@ -7,25 +7,32 @@ from gitlit.api.app import app, init_app
 from gitlit.core.config import SystemConfig
 from gitlit.core.exceptions import ValidationError
 from gitlit.core.control import SystemController
+from gitlit.core.transactions import TransactionContext, TransactionManager
 
 
 @pytest.fixture
-async def async_controller():
+def transaction_manager():
+    """Create a test transaction manager"""
+    return TransactionManager()
+
+
+@pytest.fixture
+async def async_controller(transaction_manager):
     """Create a test controller for async tests"""
     config = SystemConfig.create_default()
-    controller = SystemController(config)
+    controller = SystemController(config, transaction_manager=transaction_manager)
     await controller.start()
     yield controller
     await controller.stop()
 
 
 @pytest.fixture
-def controller():
+def controller(transaction_manager):
     """Create a test controller for sync tests"""
     import asyncio
 
     config = SystemConfig.create_default()
-    controller = SystemController(config)
+    controller = SystemController(config, transaction_manager=transaction_manager)
     # Run start synchronously
     asyncio.get_event_loop().run_until_complete(controller.start())
     yield controller
